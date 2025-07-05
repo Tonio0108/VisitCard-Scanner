@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:visit_card_scanner/pages/contacts.dart';
+import 'package:visit_card_scanner/pages/scanner.dart';
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MainApp());
 }
+
 
 class MainApp extends StatelessWidget {
   const MainApp({super.key});
@@ -18,7 +21,7 @@ class MainApp extends StatelessWidget {
                 body: const TabBarView(
                   children: [
                     Contact(),
-                    Center(child: Text('Scanner une carte')),
+                    AddContactScreen(),
                   ],
                 ),
                 

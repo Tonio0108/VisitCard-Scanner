@@ -15,7 +15,7 @@ class _ContactState extends State<Contact> {
             appBar: AppBar(
               backgroundColor: Colors.white,
               elevation: 1,
-              title: Container(
+              title: SizedBox(
                 height: 40,
                 child: TextField(
                   decoration: InputDecoration(
@@ -44,6 +44,11 @@ class _ContactState extends State<Contact> {
 
             body: Container(
               
+              child: Scaffold(
+                appBar: AppBar(
+                  title: Text('Vos Contacts')
+                  ),
+              ),
             ),
 );
 
