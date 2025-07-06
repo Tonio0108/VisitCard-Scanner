@@ -20,7 +20,7 @@ class MainApp extends StatelessWidget {
                 backgroundColor: Colors.white,
                 body: const TabBarView(
                   children: [
-                    Contact(),
+                    ContactPage(),
                     AddContactScreen(),
                   ],
                 ),

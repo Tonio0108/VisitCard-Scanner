@@ -3,25 +3,69 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 class ConfirmFormPage extends StatefulWidget {
-  const ConfirmFormPage({super.key});
+  final String? name;
+  final String? org;
+  final String? role;
+  final String? image;
+  final String? email;
+  final String? phone;
+  final String? website;
+  final String? social;
+
+  const ConfirmFormPage({
+    Key? key,
+    this.name,
+    this.org,
+    this.role,
+    this.image,
+    this.email,
+    this.phone,
+    this.website,
+    this.social,
+  }) : super(key: key);
 
   @override
   State<ConfirmFormPage> createState() => _ConfirmFormPageState();
 }
 
+
 class _ConfirmFormPageState extends State<ConfirmFormPage> {
   final _formKey = GlobalKey<FormState>();
 
-  final nameController = TextEditingController();
-  final orgController = TextEditingController();
-  final roleController = TextEditingController();
-  final emailController = TextEditingController();
+  late TextEditingController nameController;
+  late TextEditingController orgController;
+  late TextEditingController roleController;
+  late TextEditingController emailController;
 
-  List<TextEditingController> phoneControllers = [TextEditingController()];
-  List<TextEditingController> siteControllers = [TextEditingController()];
-  List<TextEditingController> socialControllers = [TextEditingController()];
+  late List<TextEditingController> phoneControllers;
+  late List<TextEditingController> siteControllers;
+  late List<TextEditingController> socialControllers;
 
   File? _profileImage;
+
+  @override
+  void initState() {
+    super.initState();
+    nameController = TextEditingController(text: widget.name ?? '');
+    orgController = TextEditingController(text: widget.org ?? '');
+    roleController = TextEditingController(text: widget.role ?? '');
+    emailController = TextEditingController(text: widget.email ?? '');
+    phoneControllers = [TextEditingController(text: widget.phone ?? '')];
+    siteControllers = [TextEditingController(text: widget.website ?? '')];
+    socialControllers = [TextEditingController(text: widget.social ?? '')];
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    orgController.dispose();
+    roleController.dispose();
+    emailController.dispose();
+    for (var c in phoneControllers) { c.dispose(); }
+    for (var c in siteControllers) { c.dispose(); }
+    for (var c in socialControllers) { c.dispose(); }
+    super.dispose();
+  }
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
@@ -86,7 +130,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nouveau contact'),
+        title: const Text('Confirmer les données'),
         centerTitle: true,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -107,8 +151,12 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                     CircleAvatar(
                       radius: 40,
                       backgroundColor: Colors.grey[300],
-                      backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
-                      child: _profileImage == null
+                      backgroundImage: _profileImage != null
+                          ? FileImage(_profileImage!)
+                          : (widget.image != null && widget.image!.isNotEmpty
+                              ? NetworkImage(widget.image!)
+                              : null),
+                      child: (_profileImage == null && (widget.image == null || widget.image!.isEmpty))
                           ? const Icon(Icons.add, color: Colors.white)
                           : null,
                     ),

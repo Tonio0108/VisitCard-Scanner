@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:visit_card_scanner/pages/ConfirmContactPage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:visit_card_scanner/pages/confirmContactPage.dart';
 class AddContactScreen extends StatelessWidget {
   const AddContactScreen({super.key});
 
@@ -23,8 +24,15 @@ class AddContactScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               FloatingActionButton.extended(
-                onPressed: () {
-                  // TODO: ouvrir caméra
+                onPressed: () async {
+                  final picker = ImagePicker();
+                  final image = await picker.pickImage(source: ImageSource.camera);
+                  if (image != null) {
+                    // Traiter l'image scannée 
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Image capturée !')),
+                    );
+                  }
                 },
                 icon: const Icon(Icons.document_scanner_outlined),
                 label: const Text('Scanner une carte'),
@@ -32,6 +40,7 @@ class AddContactScreen extends StatelessWidget {
                 foregroundColor: Colors.white,
                 elevation: 1,
               ),
+
               const SizedBox(height: 20),
               const Text(
                 'ou',
