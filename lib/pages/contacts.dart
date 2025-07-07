@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 // ignore: depend_on_referenced_packages
 import 'package:collection/collection.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:visit_card_scanner/main.dart' show routeObserver;
 import 'package:visit_card_scanner/models/contact.dart';
 import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
+import 'package:visit_card_scanner/services/ocr_service.dart';
 import 'contact_detail_page.dart';
 import 'dart:io'; // Import dart:io
 
@@ -196,12 +196,24 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
           ),
           IconButton(
             onPressed: () async {
-              final picker = ImagePicker();
-              final image = await picker.pickImage(source: ImageSource.camera);
-              if (image != null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Image capturée !')),
-                );
+              final ocrService = OCRService();
+              final result = await ocrService.scanAndParseVisitCardFromCamera(
+                context,
+              );
+              ocrService.dispose();
+
+              if (result != null) {
+                print('Name: ${result.name}');
+                print('Company: ${result.company}');
+                print('Profession: ${result.profession}');
+                print('Phones: ${result.phones}');
+                print('Emails: ${result.emails}');
+                print('Websites: ${result.websites}');
+                for (final social in result.socialNetworks) {
+                  print('${social.platform}: ${social.username}');
+                }
+
+                // TODO: Auto-fill form or pass to another screen
               }
             },
             icon: const Icon(Icons.qr_code_scanner_rounded),

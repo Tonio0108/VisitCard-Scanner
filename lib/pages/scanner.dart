@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:visit_card_scanner/pages/confirmContactPage.dart';
+import 'package:visit_card_scanner/services/ocr_service.dart';
+
 class AddContactScreen extends StatelessWidget {
   const AddContactScreen({super.key});
 
@@ -25,15 +26,26 @@ class AddContactScreen extends StatelessWidget {
             children: [
               FloatingActionButton.extended(
                 onPressed: () async {
-                  final picker = ImagePicker();
-                  final image = await picker.pickImage(source: ImageSource.camera);
-                  if (image != null) {
-                    // Traiter l'image scannée 
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Image capturée !')),
-                    );
+                  final ocrService = OCRService();
+                  final result = await ocrService
+                      .scanAndParseVisitCardFromCamera(context);
+                  ocrService.dispose();
+
+                  if (result != null) {
+                    print('Name: ${result.name}');
+                    print('Company: ${result.company}');
+                    print('Profession: ${result.profession}');
+                    print('Phones: ${result.phones}');
+                    print('Emails: ${result.emails}');
+                    print('Websites: ${result.websites}');
+                    for (final social in result.socialNetworks) {
+                      print('${social.platform}: ${social.username}');
+                    }
+
+                    // TODO: Auto-fill form or pass to another screen
                   }
                 },
+
                 icon: const Icon(Icons.document_scanner_outlined),
                 label: const Text('Scanner une carte'),
                 backgroundColor: const Color(0xFF7D49FF),
