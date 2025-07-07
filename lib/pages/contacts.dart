@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 // ignore: depend_on_referenced_packages
 import 'package:collection/collection.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:visit_card_scanner/main.dart' show routeObserver;
 import 'package:visit_card_scanner/models/contact.dart';
 import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
 import 'contact_detail_page.dart';
+import 'dart:io'; // Import dart:io
 
 class ContactPage extends StatefulWidget {
   const ContactPage({super.key});
@@ -15,16 +17,36 @@ class ContactPage extends StatefulWidget {
   State<ContactPage> createState() => _ContactPageState();
 }
 
-class _ContactPageState extends State<ContactPage> {
-  // Données statiques simulant une récupération depuis une BD
+class _ContactPageState extends State<ContactPage> with RouteAware {
   List<Map<String, dynamic>> contacts = [];
   bool isLoading = true;
-
   String searchText = '';
 
   @override
   void initState() {
     super.initState();
+    _loadContactsFromDb();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPush() {
+    _loadContactsFromDb();
+  }
+
+  @override
+  void didPopNext() {
     _loadContactsFromDb();
   }
 
@@ -41,30 +63,27 @@ class _ContactPageState extends State<ContactPage> {
             'websites': card.websites,
             'socials': card.socialNetworks,
             'id': card.id,
-            'image': 'https://i.pravatar.cc/100?u=${card.id}',
+            'image': card.imageUrl, // Use the stored local image path
           },
         )
         .toList();
-    print('Contacts loaded: *********** ${contacts.length} **************');
     setState(() => isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Trie les contacts par ordre alphabétique
-    // contacts.sort((a, b) => a['name']!.compareTo(b['name']!));
-    // Filtrage selon la recherche
     final filteredContacts = searchText.isEmpty
         ? contacts
         : contacts.where((c) {
             final query = searchText.toLowerCase();
-            return c['name']!.toLowerCase().contains(query) ||
-                c['org']!.toLowerCase().contains(query) ||
-                c['role']!.toLowerCase().contains(query);
+            return c['name'].toLowerCase().contains(query) ||
+                c['org'].toLowerCase().contains(query) ||
+                c['role'].toLowerCase().contains(query);
           }).toList();
+
     final groupedContacts = groupBy(
       filteredContacts,
-      (contact) => contact['name']![0].toUpperCase(),
+      (contact) => contact['name'][0].toUpperCase(),
     );
 
     return Scaffold(
@@ -75,102 +94,120 @@ class _ContactPageState extends State<ContactPage> {
         title: SizedBox(
           height: 40,
           child: TextField(
-            onChanged: (value) {
-              setState(() {
-                searchText = value;
-              });
-            },
+            onChanged: (value) => setState(() => searchText = value),
             decoration: InputDecoration(
               hintText: 'Rechercher un contact ...',
               filled: true,
               fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(
-                vertical: 0,
-                horizontal: 20,
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(
-                  color: Color(0xFFD7D7D7),
-                  width: 1,
-                ),
+                borderSide: const BorderSide(color: Color(0xFFD7D7D7)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(
-                  color: Color(0xFFD7D7D7),
-                  width: 1,
-                ),
+                borderSide: const BorderSide(color: Color(0xFFD7D7D7)),
               ),
-              suffixIcon: Icon(Icons.search),
+              suffixIcon: const Icon(Icons.search),
             ),
           ),
         ),
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
+          : contacts.isEmpty
+          ? Column(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Vos contacts',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () async {
-                        final picker = ImagePicker();
-                        final image = await picker.pickImage(
-                          source: ImageSource.camera,
-                        );
-                        if (image != null) {
-                          // Traiter l'image scannée
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Image capturée !')),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.qr_code_scanner_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Liste groupée par lettre
-                ...groupedContacts.entries.expand(
-                  (entry) => [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(
-                        entry.key,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                _buildHeader(),
+                const Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.contact_page_outlined,
+                          size: 64,
+                          color: Colors.grey,
                         ),
-                      ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Aucun contact enregistré',
+                          style: TextStyle(fontSize: 16, color: Colors.grey),
+                        ),
+                      ],
                     ),
-                    ...entry.value.map(
-                      (contact) => buildContactCard(
-                        name: contact['name']! as String,
-                        org: contact['org']! as String,
-                        role: contact['role']! as String,
-                        email: contact['email']! as String,
-                        phones: contact['phones'] as List<Contact>,
-                        websites: contact['websites'] as List<Website>,
-                        socials: contact['socials'] as List<SocialNetwork>,
-                        image: contact['image']!,
-                        id: contact['id'] as int,
+                  ),
+                ),
+              ],
+            )
+          : Column(
+              children: [
+                _buildHeader(),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      ...groupedContacts.entries.expand(
+                        (entry) => [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8.0),
+                            child: Text(
+                              entry.key,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          ...entry.value.map(
+                            (contact) => buildContactCard(
+                              name: contact['name'] as String,
+                              org: contact['org'] as String,
+                              role: contact['role'] as String,
+                              email: contact['email'] as String,
+                              phones: contact['phones'] as List<Contact>,
+                              websites: contact['websites'] as List<Website>,
+                              socials:
+                                  contact['socials'] as List<SocialNetwork>,
+                              image: contact['image'],
+                              id: contact['id'] as int,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Vos contacts',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          IconButton(
+            onPressed: () async {
+              final picker = ImagePicker();
+              final image = await picker.pickImage(source: ImageSource.camera);
+              if (image != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Image capturée !')),
+                );
+              }
+            },
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+          ),
+        ],
+      ),
     );
   }
 
@@ -180,30 +217,34 @@ class _ContactPageState extends State<ContactPage> {
     required String role,
     required String email,
     required List<Contact> phones,
-    required List<Website> websites,
-    required List<SocialNetwork> socials,
+    List<Website>? websites,
+    List<SocialNetwork>? socials,
     required int id,
-    String? image,
+    String? image, // This is now the local path
   }) {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: () {
-        Navigator.push(
+      onTap: () async {
+        final updatedCard = await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ContactDetailPage(
               name: name,
               org: org,
               role: role,
-              image: image,
+              image: image, // Pass the local image path
               email: email,
-              phones: phones, // exemple, à remplacer par la vraie donnée
-              websites: websites, // exemple, à remplacer par la vraie donnée
+              phones: phones,
+              websites: websites,
               socials: socials,
-              id: id, // exemple, à remplacer par la vraie donnée
+              id: id,
             ),
           ),
         );
+
+        if (updatedCard != null && mounted) {
+          await _loadContactsFromDb();
+        }
       },
       child: Card(
         color: Colors.white,
@@ -220,7 +261,7 @@ class _ContactPageState extends State<ContactPage> {
                 radius: 28,
                 backgroundColor: const Color.fromARGB(255, 231, 231, 231),
                 backgroundImage: image != null && image.isNotEmpty
-                    ? NetworkImage(image)
+                    ? FileImage(File(image)) // Use FileImage for local path
                     : null,
                 child: (image == null || image.isEmpty)
                     ? const Icon(Icons.person, size: 30)

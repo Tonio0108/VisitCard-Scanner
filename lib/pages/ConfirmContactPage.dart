@@ -6,12 +6,13 @@ import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/visit_card.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
+import 'package:path_provider/path_provider.dart'; // Import path_provider
 
 class ConfirmFormPage extends StatefulWidget {
   final String? name;
   final String? org;
   final String? role;
-  final String? image;
+  final String? image; // This will now be the local path or null
   final String? email;
   final List<Contact>? phones;
   final List<Website>? websites;
@@ -52,7 +53,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
   @override
   void initState() {
     super.initState();
-
     nameController = TextEditingController(text: widget.name ?? '');
     orgController = TextEditingController(text: widget.org ?? '');
     roleController = TextEditingController(text: widget.role ?? '');
@@ -71,18 +71,25 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         : [TextEditingController()];
 
     socialControllers = (widget.socials != null && widget.socials!.isNotEmpty)
-        ? widget.socials!.map((s) {
-            return {
-              'title': TextEditingController(text: s.title),
-              'username': TextEditingController(text: s.userName),
-            };
-          }).toList()
+        ? widget.socials!
+              .map(
+                (s) => {
+                  'title': TextEditingController(text: s.title),
+                  'username': TextEditingController(text: s.userName),
+                },
+              )
+              .toList()
         : [
             {
               'title': TextEditingController(),
               'username': TextEditingController(),
             },
           ];
+
+    // Initialize _profileImage if an image path is provided
+    if (widget.image != null && widget.image!.isNotEmpty) {
+      _profileImage = File(widget.image!);
+    }
   }
 
   @override
@@ -93,21 +100,11 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
     emailController.dispose();
     for (var c in phoneControllers) c.dispose();
     for (var c in siteControllers) c.dispose();
-    for (var pair in socialControllers) {
-      pair['title']!.dispose();
-      pair['username']!.dispose();
+    for (var map in socialControllers) {
+      map['title']!.dispose();
+      map['username']!.dispose();
     }
     super.dispose();
-  }
-
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      setState(() {
-        _profileImage = File(image.path);
-      });
-    }
   }
 
   Widget buildDynamicFieldList(
@@ -115,8 +112,10 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
     List<TextEditingController> controllers,
     IconData icon,
     String hint,
-    VoidCallback onAdd,
-  ) {
+    TextInputType keyboardType,
+    VoidCallback onAdd, {
+    bool required = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -134,6 +133,15 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                   child: TextFormField(
                     controller: controller,
                     decoration: InputDecoration(hintText: hint),
+                    keyboardType: keyboardType,
+                    validator: required
+                        ? (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Ce champ est requis';
+                            }
+                            return null;
+                          }
+                        : null,
                   ),
                 ),
                 if (controllers.length > 1)
@@ -142,11 +150,8 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                       Icons.remove_circle_outline,
                       color: Colors.red,
                     ),
-                    onPressed: () {
-                      setState(() {
-                        controllers.removeAt(index);
-                      });
-                    },
+                    onPressed: () =>
+                        setState(() => controllers.removeAt(index)),
                   ),
               ],
             ),
@@ -174,7 +179,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         ),
         ...socialControllers.asMap().entries.map((entry) {
           final index = entry.key;
-          final controllers = entry.value;
+          final controller = entry.value;
 
           return Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -184,18 +189,18 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextFormField(
-                    controller: controllers['title'],
+                    controller: controller['title'],
                     decoration: const InputDecoration(
                       hintText: 'Nom du réseau',
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                const Text("-", style: TextStyle(fontSize: 24)),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
+                const Text("-", style: TextStyle(fontSize: 16)),
+                const SizedBox(width: 4),
                 Expanded(
                   child: TextFormField(
-                    controller: controllers['username'],
+                    controller: controller['username'],
                     decoration: const InputDecoration(
                       hintText: "Nom d'utilisateur",
                     ),
@@ -207,9 +212,8 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                       Icons.remove_circle_outline,
                       color: Colors.red,
                     ),
-                    onPressed: () {
-                      setState(() => socialControllers.removeAt(index));
-                    },
+                    onPressed: () =>
+                        setState(() => socialControllers.removeAt(index)),
                   ),
               ],
             ),
@@ -234,64 +238,90 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
     );
   }
 
-  void saveData() async {
-    if (_formKey.currentState!.validate()) {
-      final savedName = nameController.text.trim();
-      final savedOrg = orgController.text.trim();
-      final savedRole = roleController.text.trim();
-      final savedEmail = emailController.text.trim();
-
-      final savedPhones = phoneControllers
-          .map((c) => c.text.trim())
-          .where((text) => text.isNotEmpty)
-          .map((p) => Contact(phoneNumber: p))
-          .toList();
-
-      final savedWebsites = siteControllers
-          .map((c) => c.text.trim())
-          .where((text) => text.isNotEmpty)
-          .map((link) => Website(link: link))
-          .toList();
-
-      final savedSocials = socialControllers
-          .where(
-            (c) =>
-                c['title']!.text.trim().isNotEmpty &&
-                c['username']!.text.trim().isNotEmpty,
-          )
-          .map(
-            (c) => SocialNetwork(
-              title: c['title']!.text.trim(),
-              userName: c['username']!.text.trim(),
-            ),
-          )
-          .toList();
-
-      final visitCard = VisitCard(
-        id: widget.id,
-        fullName: savedName,
-        organisationName: savedOrg,
-        email: savedEmail,
-        profession: savedRole,
-        contacts: savedPhones,
-        websites: savedWebsites,
-        socialNetworks: savedSocials,
-      );
-
-      final db = DatabaseService.instance;
-
-      if (visitCard.id != null) {
-        await db.updateVisitCard(visitCard);
-      } else {
-        await db.insertVisitCard(visitCard);
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Contact enregistré')));
-      Navigator.pop(context);
+  Future<void> _pickImage() async {
+    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() => _profileImage = File(image.path));
     }
+  }
+
+  void saveData() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final savedPhones = phoneControllers
+        .map((c) => c.text.trim())
+        .where((text) => text.isNotEmpty)
+        .map((p) => Contact(phoneNumber: p))
+        .toList();
+
+    if (savedPhones.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Au moins un numéro de téléphone est requis"),
+        ),
+      );
+      return;
+    }
+
+    final savedWebsites = siteControllers
+        .map((c) => c.text.trim())
+        .where((text) => text.isNotEmpty)
+        .map((link) => Website(link: link))
+        .toList();
+
+    final savedSocials = socialControllers
+        .where(
+          (c) =>
+              c['title']!.text.trim().isNotEmpty &&
+              c['username']!.text.trim().isNotEmpty,
+        )
+        .map(
+          (c) => SocialNetwork(
+            title: c['title']!.text.trim(),
+            userName: c['username']!.text.trim(),
+          ),
+        )
+        .toList();
+
+    String? imagePathToSave = widget.image; // Start with existing image path
+
+    if (_profileImage != null) {
+      // If a new image was picked, save it locally
+      final directory = await getApplicationDocumentsDirectory();
+      final String fileName = '${DateTime.now().millisecondsSinceEpoch}.png';
+      final String newPath = '${directory.path}/$fileName';
+      final File savedImage = await _profileImage!.copy(newPath);
+      imagePathToSave = savedImage.path;
+    }
+
+    final visitCard = VisitCard(
+      id: widget.id,
+      fullName: nameController.text.trim(),
+      organisationName: orgController.text.trim(),
+      email: emailController.text.trim(),
+      profession: roleController.text.trim(),
+      contacts: savedPhones,
+      websites: savedWebsites,
+      socialNetworks: savedSocials,
+      imageUrl: imagePathToSave, // Pass the local image path here
+    );
+
+    final db = DatabaseService.instance;
+    if (visitCard.id != null) {
+      await db.updateVisitCard(visitCard);
+    } else {
+      await db.insertVisitCard(visitCard);
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          visitCard.id == null ? 'Contact enregistré' : 'Contact mis à jour',
+        ),
+      ),
+    );
+    Navigator.pop(context, visitCard);
   }
 
   @override
@@ -303,6 +333,9 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [
+          IconButton(icon: const Icon(Icons.check), onPressed: saveData),
+        ],
       ),
       backgroundColor: Colors.white,
       body: SingleChildScrollView(
@@ -311,7 +344,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
           key: _formKey,
           child: Column(
             children: [
-              // Photo
               GestureDetector(
                 onTap: _pickImage,
                 child: Column(
@@ -321,12 +353,10 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                       backgroundColor: Colors.grey[300],
                       backgroundImage: _profileImage != null
                           ? FileImage(_profileImage!)
-                          : (widget.image != null && widget.image!.isNotEmpty
-                                ? NetworkImage(widget.image!) as ImageProvider
-                                : null),
+                          : null, // Only use FileImage if _profileImage is set
                       child:
-                          (_profileImage == null &&
-                              (widget.image == null || widget.image!.isEmpty))
+                          (_profileImage ==
+                              null) // Check if _profileImage is null
                           ? const Icon(Icons.add, color: Colors.white)
                           : null,
                     ),
@@ -337,76 +367,73 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
               ),
               const SizedBox(height: 24),
 
-              // Inputs
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(labelText: 'Nom complet'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Ce champ est requis'
+                    : null,
               ),
               TextFormField(
                 controller: orgController,
                 decoration: const InputDecoration(
                   labelText: "Nom de l'organisation",
                 ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Ce champ est requis'
+                    : null,
               ),
               TextFormField(
                 controller: roleController,
                 decoration: const InputDecoration(
                   labelText: "Rôle dans l'organisation",
                 ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Ce champ est requis'
+                    : null,
               ),
               TextFormField(
                 controller: emailController,
                 decoration: const InputDecoration(labelText: 'Email'),
                 keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Ce champ est requis';
+                  } else if (!RegExp(
+                    r'^[\w\.-]+@[\w\.-]+\.\w+$',
+                  ).hasMatch(value.trim())) {
+                    return 'Email invalide';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 24),
 
-              // Phones
               buildDynamicFieldList(
                 "Téléphone(s)",
                 phoneControllers,
                 Icons.phone,
                 'Numéro de téléphone',
+                TextInputType.phone,
                 () => setState(
                   () => phoneControllers.add(TextEditingController()),
                 ),
+                required: true,
               ),
               const SizedBox(height: 16),
-
-              // Sites
               buildDynamicFieldList(
                 "Sites webs",
                 siteControllers,
                 Icons.language,
                 'www.exemple.com',
+                TextInputType.url,
                 () => setState(
                   () => siteControllers.add(TextEditingController()),
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Socials
               buildSocialFields(),
               const SizedBox(height: 32),
-
-              // Actions
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Annuler'),
-                  ),
-                  ElevatedButton(
-                    onPressed: saveData,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF7D49FF),
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('Confirmer'),
-                  ),
-                ],
-              ),
             ],
           ),
         ),

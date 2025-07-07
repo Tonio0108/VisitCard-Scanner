@@ -28,7 +28,8 @@ class DatabaseService {
         fullName TEXT,
         organisationName TEXT,
         email TEXT,
-        profession TEXT
+        profession TEXT,
+        imageUrl TEXT DEFAULT 'assets/images/placeholder.webp'
       );
     ''');
 
@@ -60,81 +61,86 @@ class DatabaseService {
       );
     ''');
 
-    final List<Map<String, dynamic>> visitCards = [
-      {
-        'fullName': 'Alice Smith',
-        'organisationName': 'Tech Co',
-        'email': 'alice@techco.com',
-        'profession': 'Product Manager',
-        'contacts': ['+111111111', '+222222222'],
-        'websites': ['https://alice.dev'],
-        'socials': [
-          {'title': 'LinkedIn', 'userName': 'alice-smith'},
-          {'title': 'Twitter', 'userName': '@alicePM'},
-        ],
-      },
-      {
-        'fullName': 'Bob Johnson',
-        'organisationName': 'Design Inc',
-        'email': 'bob@designinc.com',
-        'profession': 'UX Designer',
-        'contacts': ['+333333333'],
-        'websites': ['https://bobdesign.com'],
-        'socials': [
-          {'title': 'Dribbble', 'userName': 'bobux'},
-        ],
-      },
-      {
-        'fullName': 'Bobo Rak',
-        'organisationName': 'Design Inc',
-        'email': 'bob@designinc.com',
-        'profession': 'UX Designer',
-        'contacts': ['+333333333'],
-        'websites': ['https://bobdesign.com'],
-        'socials': [
-          {'title': 'Dribbble', 'userName': 'bobux'},
-        ],
-      },
-      {
-        'fullName': 'Rasoa Jojo',
-        'organisationName': 'Design Inc',
-        'email': 'bob@designinc.com',
-        'profession': 'UX Designer',
-        'contacts': ['+333333333'],
-        'websites': ['https://bobdesign.com'],
-        'socials': [
-          {'title': 'Dribbble', 'userName': 'bobux'},
-        ],
-      },
-    ];
+    // final List<Map<String, dynamic>> visitCards = [
+    //   {
+    //     'fullName': 'Alice Smith',
+    //     'organisationName': 'Tech Co',
+    //     'email': 'alice@techco.com',
+    //     'profession': 'Product Manager',
+    //     'imageUrl': null,
+    //     'contacts': ['+111111111', '+222222222'],
+    //     'websites': ['https://alice.dev'],
+    //     'socials': [
+    //       {'title': 'LinkedIn', 'userName': 'alice-smith'},
+    //       {'title': 'Twitter', 'userName': '@alicePM'},
+    //     ],
+    //   },
+    //   {
+    //     'fullName': 'Bob Johnson',
+    //     'organisationName': 'Design Inc',
+    //     'email': 'bob@designinc.com',
+    //     'profession': 'UX Designer',
+    //     'imageUrl': null,
+    //     'contacts': ['+333333333'],
+    //     'websites': ['https://bobdesign.com'],
+    //     'socials': [
+    //       {'title': 'Dribbble', 'userName': 'bobux'},
+    //     ],
+    //   },
+    //   {
+    //     'fullName': 'Bobo Rak',
+    //     'organisationName': 'Design Inc',
+    //     'email': 'bob@designinc.com',
+    //     'profession': 'UX Designer',
+    //     'imageUrl': null,
+    //     'contacts': ['+333333333'],
+    //     'websites': ['https://bobdesign.com'],
+    //     'socials': [
+    //       {'title': 'Dribbble', 'userName': 'bobux'},
+    //     ],
+    //   },
+    //   {
+    //     'fullName': 'Rasoa Jojo',
+    //     'organisationName': 'Design Inc',
+    //     'email': 'bob@designinc.com',
+    //     'profession': 'UX Designer',
+    //     'imageUrl': null,
+    //     'contacts': ['+333333333'],
+    //     'websites': ['https://bobdesign.com'],
+    //     'socials': [
+    //       {'title': 'Dribbble', 'userName': 'bobux'},
+    //     ],
+    //   },
+    // ];
 
-    for (final card in visitCards) {
-      final visitCardId = await db.insert('VisitCard', {
-        'fullName': card['fullName'],
-        'organisationName': card['organisationName'],
-        'email': card['email'],
-        'profession': card['profession'],
-      });
+    // for (final card in visitCards) {
+    //   final visitCardId = await db.insert('VisitCard', {
+    //     'fullName': card['fullName'],
+    //     'organisationName': card['organisationName'],
+    //     'email': card['email'],
+    //     'profession': card['profession'],
+    //     'imageUrl': card['imageUrl'],
+    //   });
 
-      for (final phone in card['contacts']) {
-        await db.insert('Contact', {
-          'visitCardId': visitCardId,
-          'phoneNumber': phone,
-        });
-      }
+    //   for (final phone in card['contacts']) {
+    //     await db.insert('Contact', {
+    //       'visitCardId': visitCardId,
+    //       'phoneNumber': phone,
+    //     });
+    //   }
 
-      for (final link in card['websites']) {
-        await db.insert('Website', {'visitCardId': visitCardId, 'link': link});
-      }
+    //   for (final link in card['websites']) {
+    //     await db.insert('Website', {'visitCardId': visitCardId, 'link': link});
+    //   }
 
-      for (final social in card['socials']) {
-        await db.insert('SocialNetwork', {
-          'visitCardId': visitCardId,
-          'title': social['title'],
-          'userName': social['userName'],
-        });
-      }
-    }
+    //   for (final social in card['socials']) {
+    //     await db.insert('SocialNetwork', {
+    //       'visitCardId': visitCardId,
+    //       'title': social['title'],
+    //       'userName': social['userName'],
+    //     });
+    //   }
+    // }
   }
 
   // Insert VisitCard with nested models
@@ -147,6 +153,7 @@ class DatabaseService {
       'organisationName': card.organisationName,
       'email': card.email,
       'profession': card.profession,
+      'imageUrl': card.imageUrl,
     });
 
     for (final contact in card.contacts) {
@@ -210,6 +217,7 @@ class DatabaseService {
           organisationName: map['organisationName'] as String,
           email: map['email'] as String,
           profession: map['profession'] as String,
+          imageUrl: map['imageUrl'] as String?,
           contacts: contacts.map((c) => Contact.fromMap(c)).toList(),
           websites: websites.map((w) => Website.fromMap(w)).toList(),
           socialNetworks: socialNetworks
@@ -222,15 +230,53 @@ class DatabaseService {
     return cards;
   }
 
-  // Update VisitCard basic fields
   Future<int> updateVisitCard(VisitCard card) async {
     final db = await database;
-    return await db.update(
+
+    // Step 1: Update the main VisitCard row
+    int count = await db.update(
       'VisitCard',
-      card.toMap(),
+      {
+        'fullName': card.fullName,
+        'organisationName': card.organisationName,
+        'email': card.email,
+        'profession': card.profession,
+        'imageUrl': card.imageUrl,
+      },
       where: 'id = ?',
       whereArgs: [card.id],
     );
+
+    // Step 2: Clear old child data
+    await db.delete('Contact', where: 'visitCardId = ?', whereArgs: [card.id]);
+    await db.delete('Website', where: 'visitCardId = ?', whereArgs: [card.id]);
+    await db.delete(
+      'SocialNetwork',
+      where: 'visitCardId = ?',
+      whereArgs: [card.id],
+    );
+
+    // Step 3: Insert new child data
+    for (final contact in card.contacts) {
+      await db.insert('Contact', {
+        'visitCardId': card.id,
+        'phoneNumber': contact.phoneNumber,
+      });
+    }
+
+    for (final site in card.websites) {
+      await db.insert('Website', {'visitCardId': card.id, 'link': site.link});
+    }
+
+    for (final social in card.socialNetworks) {
+      await db.insert('SocialNetwork', {
+        'visitCardId': card.id,
+        'title': social.title,
+        'userName': social.userName,
+      });
+    }
+
+    return count;
   }
 
   // Delete VisitCard and related data

@@ -4,6 +4,9 @@ import 'package:sqflite/sqflite.dart';
 import 'package:visit_card_scanner/pages/contacts.dart';
 import 'package:visit_card_scanner/pages/scanner.dart';
 
+final RouteObserver<ModalRoute<void>> routeObserver =
+    RouteObserver<ModalRoute<void>>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await deleteDatabase(join(await getDatabasesPath(), 'visit_card.db'));
@@ -44,6 +47,7 @@ class MainApp extends StatelessWidget {
           ),
         ),
       ),
+      navigatorObservers: [routeObserver],
     );
   }
 }

@@ -12,6 +12,7 @@ class VisitCard {
   List<Contact> contacts;
   List<Website> websites;
   List<SocialNetwork> socialNetworks;
+  final String? imageUrl;
 
   VisitCard({
     this.id,
@@ -22,6 +23,7 @@ class VisitCard {
     this.contacts = const [],
     this.websites = const [],
     this.socialNetworks = const [],
+    this.imageUrl = "assets/images/placeholder.webp",
   });
 
   Map<String, dynamic> toMap() {
