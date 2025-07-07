@@ -1,6 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:visit_card_scanner/models/contact.dart';
+import 'package:visit_card_scanner/models/social_network.dart';
+import 'package:visit_card_scanner/models/visit_card.dart';
+import 'package:visit_card_scanner/models/website.dart';
+import 'package:visit_card_scanner/services/database_service.dart';
 
 class ConfirmFormPage extends StatefulWidget {
   final String? name;
@@ -8,26 +13,27 @@ class ConfirmFormPage extends StatefulWidget {
   final String? role;
   final String? image;
   final String? email;
-  final String? phone;
-  final String? website;
-  final String? social;
+  final List<Contact>? phones;
+  final List<Website>? websites;
+  final List<SocialNetwork>? socials;
+  final int? id;
 
   const ConfirmFormPage({
-    Key? key,
+    super.key,
     this.name,
     this.org,
     this.role,
     this.image,
     this.email,
-    this.phone,
-    this.website,
-    this.social,
-  }) : super(key: key);
+    this.phones,
+    this.websites,
+    this.socials,
+    this.id,
+  });
 
   @override
   State<ConfirmFormPage> createState() => _ConfirmFormPageState();
 }
-
 
 class _ConfirmFormPageState extends State<ConfirmFormPage> {
   final _formKey = GlobalKey<FormState>();
@@ -39,20 +45,44 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
 
   late List<TextEditingController> phoneControllers;
   late List<TextEditingController> siteControllers;
-  late List<TextEditingController> socialControllers;
+  late List<Map<String, TextEditingController>> socialControllers;
 
   File? _profileImage;
 
   @override
   void initState() {
     super.initState();
+
     nameController = TextEditingController(text: widget.name ?? '');
     orgController = TextEditingController(text: widget.org ?? '');
     roleController = TextEditingController(text: widget.role ?? '');
     emailController = TextEditingController(text: widget.email ?? '');
-    phoneControllers = [TextEditingController(text: widget.phone ?? '')];
-    siteControllers = [TextEditingController(text: widget.website ?? '')];
-    socialControllers = [TextEditingController(text: widget.social ?? '')];
+
+    phoneControllers = (widget.phones != null && widget.phones!.isNotEmpty)
+        ? widget.phones!
+              .map((p) => TextEditingController(text: p.phoneNumber))
+              .toList()
+        : [TextEditingController()];
+
+    siteControllers = (widget.websites != null && widget.websites!.isNotEmpty)
+        ? widget.websites!
+              .map((w) => TextEditingController(text: w.link))
+              .toList()
+        : [TextEditingController()];
+
+    socialControllers = (widget.socials != null && widget.socials!.isNotEmpty)
+        ? widget.socials!.map((s) {
+            return {
+              'title': TextEditingController(text: s.title),
+              'username': TextEditingController(text: s.userName),
+            };
+          }).toList()
+        : [
+            {
+              'title': TextEditingController(),
+              'username': TextEditingController(),
+            },
+          ];
   }
 
   @override
@@ -61,9 +91,12 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
     orgController.dispose();
     roleController.dispose();
     emailController.dispose();
-    for (var c in phoneControllers) { c.dispose(); }
-    for (var c in siteControllers) { c.dispose(); }
-    for (var c in socialControllers) { c.dispose(); }
+    for (var c in phoneControllers) c.dispose();
+    for (var c in siteControllers) c.dispose();
+    for (var pair in socialControllers) {
+      pair['title']!.dispose();
+      pair['username']!.dispose();
+    }
     super.dispose();
   }
 
@@ -78,11 +111,12 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
   }
 
   Widget buildDynamicFieldList(
-      String label,
-      List<TextEditingController> controllers,
-      IconData icon,
-      String hint,
-      VoidCallback onAdd) {
+    String label,
+    List<TextEditingController> controllers,
+    IconData icon,
+    String hint,
+    VoidCallback onAdd,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -99,14 +133,15 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 Expanded(
                   child: TextFormField(
                     controller: controller,
-                    decoration: InputDecoration(
-                      hintText: hint,
-                    ),
+                    decoration: InputDecoration(hintText: hint),
                   ),
                 ),
                 if (controllers.length > 1)
                   IconButton(
-                    icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                    icon: const Icon(
+                      Icons.remove_circle_outline,
+                      color: Colors.red,
+                    ),
                     onPressed: () {
                       setState(() {
                         controllers.removeAt(index);
@@ -120,10 +155,143 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         TextButton.icon(
           onPressed: onAdd,
           icon: const Icon(Icons.add, size: 18, color: Colors.blue),
-          label: Text('Ajouter ${label.toLowerCase()}', style: const TextStyle(color: Colors.blue)),
+          label: Text(
+            'Ajouter ${label.toLowerCase()}',
+            style: const TextStyle(color: Colors.blue),
+          ),
         ),
       ],
     );
+  }
+
+  Widget buildSocialFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Réseaux sociaux",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        ...socialControllers.asMap().entries.map((entry) {
+          final index = entry.key;
+          final controllers = entry.value;
+
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.share, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    controller: controllers['title'],
+                    decoration: const InputDecoration(
+                      hintText: 'Nom du réseau',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text("-", style: TextStyle(fontSize: 24)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    controller: controllers['username'],
+                    decoration: const InputDecoration(
+                      hintText: "Nom d'utilisateur",
+                    ),
+                  ),
+                ),
+                if (socialControllers.length > 1)
+                  IconButton(
+                    icon: const Icon(
+                      Icons.remove_circle_outline,
+                      color: Colors.red,
+                    ),
+                    onPressed: () {
+                      setState(() => socialControllers.removeAt(index));
+                    },
+                  ),
+              ],
+            ),
+          );
+        }).toList(),
+        TextButton.icon(
+          onPressed: () {
+            setState(() {
+              socialControllers.add({
+                'title': TextEditingController(),
+                'username': TextEditingController(),
+              });
+            });
+          },
+          icon: const Icon(Icons.add, size: 18, color: Colors.blue),
+          label: const Text(
+            'Ajouter un réseau social',
+            style: TextStyle(color: Colors.blue),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void saveData() async {
+    if (_formKey.currentState!.validate()) {
+      final savedName = nameController.text.trim();
+      final savedOrg = orgController.text.trim();
+      final savedRole = roleController.text.trim();
+      final savedEmail = emailController.text.trim();
+
+      final savedPhones = phoneControllers
+          .map((c) => c.text.trim())
+          .where((text) => text.isNotEmpty)
+          .map((p) => Contact(phoneNumber: p))
+          .toList();
+
+      final savedWebsites = siteControllers
+          .map((c) => c.text.trim())
+          .where((text) => text.isNotEmpty)
+          .map((link) => Website(link: link))
+          .toList();
+
+      final savedSocials = socialControllers
+          .where(
+            (c) =>
+                c['title']!.text.trim().isNotEmpty &&
+                c['username']!.text.trim().isNotEmpty,
+          )
+          .map(
+            (c) => SocialNetwork(
+              title: c['title']!.text.trim(),
+              userName: c['username']!.text.trim(),
+            ),
+          )
+          .toList();
+
+      final visitCard = VisitCard(
+        id: widget.id,
+        fullName: savedName,
+        organisationName: savedOrg,
+        email: savedEmail,
+        profession: savedRole,
+        contacts: savedPhones,
+        websites: savedWebsites,
+        socialNetworks: savedSocials,
+      );
+
+      final db = DatabaseService.instance;
+
+      if (visitCard.id != null) {
+        await db.updateVisitCard(visitCard);
+      } else {
+        await db.insertVisitCard(visitCard);
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Contact enregistré')));
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -143,7 +311,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
           key: _formKey,
           child: Column(
             children: [
-              // Photo de profil
+              // Photo
               GestureDetector(
                 onTap: _pickImage,
                 child: Column(
@@ -154,9 +322,11 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                       backgroundImage: _profileImage != null
                           ? FileImage(_profileImage!)
                           : (widget.image != null && widget.image!.isNotEmpty
-                              ? NetworkImage(widget.image!)
-                              : null),
-                      child: (_profileImage == null && (widget.image == null || widget.image!.isEmpty))
+                                ? NetworkImage(widget.image!) as ImageProvider
+                                : null),
+                      child:
+                          (_profileImage == null &&
+                              (widget.image == null || widget.image!.isEmpty))
                           ? const Icon(Icons.add, color: Colors.white)
                           : null,
                     ),
@@ -165,64 +335,61 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                   ],
                 ),
               ),
-
               const SizedBox(height: 24),
 
-              // Champs de base
+              // Inputs
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(labelText: 'Nom complet'),
               ),
               TextFormField(
                 controller: orgController,
-                decoration: const InputDecoration(labelText: "Nom de l'organisation"),
+                decoration: const InputDecoration(
+                  labelText: "Nom de l'organisation",
+                ),
               ),
               TextFormField(
                 controller: roleController,
-                decoration: const InputDecoration(labelText: "Rôle dans l'organisation"),
+                decoration: const InputDecoration(
+                  labelText: "Rôle dans l'organisation",
+                ),
               ),
               TextFormField(
                 controller: emailController,
                 decoration: const InputDecoration(labelText: 'Email'),
                 keyboardType: TextInputType.emailAddress,
               ),
-
               const SizedBox(height: 24),
 
-              // Téléphones dynamiques
+              // Phones
               buildDynamicFieldList(
                 "Téléphone(s)",
                 phoneControllers,
                 Icons.phone,
                 'Numéro de téléphone',
-                () => setState(() => phoneControllers.add(TextEditingController())),
+                () => setState(
+                  () => phoneControllers.add(TextEditingController()),
+                ),
               ),
-
               const SizedBox(height: 16),
 
-              // Sites web dynamiques
+              // Sites
               buildDynamicFieldList(
                 "Sites webs",
                 siteControllers,
                 Icons.language,
                 'www.exemple.com',
-                () => setState(() => siteControllers.add(TextEditingController())),
+                () => setState(
+                  () => siteControllers.add(TextEditingController()),
+                ),
               ),
-
               const SizedBox(height: 16),
 
-              // Réseaux sociaux dynamiques
-              buildDynamicFieldList(
-                "Réseaux sociaux",
-                socialControllers,
-                Icons.share,
-                'facebook - nom',
-                () => setState(() => socialControllers.add(TextEditingController())),
-              ),
-
+              // Socials
+              buildSocialFields(),
               const SizedBox(height: 32),
 
-              // Boutons
+              // Actions
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -231,22 +398,15 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                     child: const Text('Annuler'),
                   ),
                   ElevatedButton(
-                    onPressed: () {
-                      if (_formKey.currentState!.validate()) {
-                        // TODO: Sauvegarder les données
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Contact enregistré')),
-                        );
-                      }
-                    },
+                    onPressed: saveData,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF7D49FF),
-                      foregroundColor: Colors.white
+                      foregroundColor: Colors.white,
                     ),
                     child: const Text('Confirmer'),
                   ),
                 ],
-              )
+              ),
             ],
           ),
         ),
