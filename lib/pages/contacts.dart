@@ -5,6 +5,7 @@ import 'package:visit_card_scanner/main.dart' show routeObserver;
 import 'package:visit_card_scanner/models/contact.dart';
 import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/website.dart';
+import 'package:visit_card_scanner/pages/ConfirmContactPage.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
 import 'package:visit_card_scanner/services/ocr_service.dart';
 import 'contact_detail_page.dart';
@@ -213,7 +214,48 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
                   print('${social.platform}: ${social.username}');
                 }
 
-                // TODO: Auto-fill form or pass to another screen
+                int visitCardId = 1;
+
+                List<Contact> contacts = result.phones
+                    .map(
+                      (phone) =>
+                          Contact(visitCardId: visitCardId, phoneNumber: phone),
+                    )
+                    .toList();
+
+                List<Website> websites = result.websites
+                    .map(
+                      (website) =>
+                          Website(visitCardId: visitCardId, link: website),
+                    )
+                    .toList();
+
+                List<SocialNetwork> socialProfiles = result.socialNetworks
+                    .map(
+                      (social) => SocialNetwork(
+                        visitCardId: visitCardId,
+                        title: social.platform,
+                        userName: social.username,
+                      ),
+                    )
+                    .toList();
+
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ConfirmFormPage(
+                      name: result.name,
+                      org: result.company,
+                      role: result.profession, // Pass the local image path
+                      email: result.emails.isNotEmpty
+                          ? result.emails.first
+                          : null,
+                      phones: contacts,
+                      websites: websites,
+                      socials: socialProfiles,
+                    ),
+                  ),
+                );
               }
             },
             icon: const Icon(Icons.qr_code_scanner_rounded),

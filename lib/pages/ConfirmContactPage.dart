@@ -379,18 +379,12 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 decoration: const InputDecoration(
                   labelText: "Nom de l'organisation",
                 ),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Ce champ est requis'
-                    : null,
               ),
               TextFormField(
                 controller: roleController,
                 decoration: const InputDecoration(
                   labelText: "Rôle dans l'organisation",
                 ),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Ce champ est requis'
-                    : null,
               ),
               TextFormField(
                 controller: emailController,
