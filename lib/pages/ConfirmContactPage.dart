@@ -6,18 +6,20 @@ import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/visit_card.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
-import 'package:path_provider/path_provider.dart'; // Import path_provider
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_contacts/flutter_contacts.dart' as native;
 
 class ConfirmFormPage extends StatefulWidget {
   final String? name;
   final String? org;
   final String? role;
-  final String? image; // This will now be the local path or null
+  final String? image;
   final String? email;
   final List<Contact>? phones;
   final List<Website>? websites;
   final List<SocialNetwork>? socials;
   final int? id;
+  final String? nativeId; // <- Add this field to receive nativeId if available
 
   const ConfirmFormPage({
     super.key,
@@ -30,6 +32,7 @@ class ConfirmFormPage extends StatefulWidget {
     this.websites,
     this.socials,
     this.id,
+    this.nativeId,
   });
 
   @override
@@ -86,7 +89,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
             },
           ];
 
-    // Initialize _profileImage if an image path is provided
     if (widget.image != null && widget.image!.isNotEmpty) {
       _profileImage = File(widget.image!);
     }
@@ -180,7 +182,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         ...socialControllers.asMap().entries.map((entry) {
           final index = entry.key;
           final controller = entry.value;
-
           return Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(
@@ -245,7 +246,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
     }
   }
 
-  void saveData() async {
+  Future<void> saveData() async {
     final isFormValid = _formKey.currentState!.validate();
 
     final phoneFilled = phoneControllers.any(
@@ -298,6 +299,9 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
       imagePathToSave = savedImage.path;
     }
 
+    final db = DatabaseService.instance;
+
+    // Build VisitCard object with nativeId (if any)
     final visitCard = VisitCard(
       id: widget.id,
       fullName: nameController.text.trim(),
@@ -308,13 +312,117 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
       websites: savedWebsites,
       socialNetworks: savedSocials,
       imageUrl: imagePathToSave,
+      nativeId: widget.nativeId,
     );
 
-    final db = DatabaseService.instance;
+    // Insert or update VisitCard in local DB first (without nativeId update)
     if (visitCard.id != null) {
       await db.updateVisitCard(visitCard);
     } else {
       await db.insertVisitCard(visitCard);
+    }
+
+    print('✔️ Contact enregistré dans la base de données');
+
+    // Request permission for native contacts
+    final granted = await native.FlutterContacts.requestPermission();
+    if (granted) {
+      native.Contact? nativeContact;
+
+      if (visitCard.nativeId != null) {
+        // Try to fetch native contact by nativeId
+        nativeContact = (await native.FlutterContacts.getContact(
+          visitCard.nativeId!,
+        ));
+      }
+
+      if (nativeContact == null) {
+        // No nativeId match, try to find by name+email or phone
+        final allNativeContacts = await native.FlutterContacts.getContacts(
+          withProperties: true,
+          withPhoto: true,
+          withAccounts: true,
+        );
+        try {
+          nativeContact = allNativeContacts.firstWhere((c) {
+            final matchName =
+                c.name.first.toLowerCase() ==
+                nameController.text.trim().toLowerCase();
+            final matchEmail = c.emails.any(
+              (e) => e.address == emailController.text.trim(),
+            );
+            final matchPhone = c.phones.any(
+              (p) => savedPhones.any((sp) => sp.phoneNumber == p.number),
+            );
+            return matchName && (matchEmail || matchPhone);
+          });
+        } catch (e) {
+          nativeContact = null;
+        }
+      }
+
+      // Prepare native contact data
+      final nativeName = native.Name(first: nameController.text.trim());
+
+      final nativeEmails = emailFilled
+          ? [native.Email(emailController.text.trim())]
+          : <native.Email>[];
+
+      final nativePhones = savedPhones
+          .map((p) => native.Phone(p.phoneNumber))
+          .toList();
+
+      final nativeOrgs = orgController.text.trim().isNotEmpty
+          ? [
+              native.Organization(
+                company: orgController.text.trim(),
+                title: roleController.text.trim(),
+              ),
+            ]
+          : <native.Organization>[];
+
+      if (nativeContact != null) {
+        // Update existing native contact fields
+        nativeContact.name = nativeName;
+        nativeContact.phones = nativePhones;
+        nativeContact.emails = nativeEmails;
+        nativeContact.organizations = nativeOrgs;
+
+        if (_profileImage != null) {
+          nativeContact.photo = await _profileImage!.readAsBytes();
+        }
+
+        // Update the contact in native DB
+        try {
+          await nativeContact.update();
+        } catch (e) {
+          print("Error updating native contact: $e");
+          // Optionally handle fallback, e.g., delete & re-insert
+        }
+
+        // Ensure nativeId in VisitCard and DB is correct
+        if (visitCard.nativeId != nativeContact.id) {
+          visitCard.nativeId = nativeContact.id;
+          await db.updateVisitCard(visitCard);
+        }
+      } else {
+        // Insert new native contact
+        final newContact = native.Contact()
+          ..name = nativeName
+          ..phones = nativePhones
+          ..emails = nativeEmails
+          ..organizations = nativeOrgs;
+
+        if (_profileImage != null) {
+          newContact.photo = await _profileImage!.readAsBytes();
+        }
+
+        await newContact.insert();
+
+        // After insertion, newContact.id should be set
+        visitCard.nativeId = newContact.id;
+        await db.updateVisitCard(visitCard);
+      }
     }
 
     if (!mounted) return;
@@ -357,10 +465,8 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                       backgroundColor: Colors.grey[300],
                       backgroundImage: _profileImage != null
                           ? FileImage(_profileImage!)
-                          : null, // Only use FileImage if _profileImage is set
-                      child:
-                          (_profileImage ==
-                              null) // Check if _profileImage is null
+                          : null,
+                      child: (_profileImage == null)
                           ? const Icon(Icons.add, color: Colors.white)
                           : null,
                     ),
@@ -370,7 +476,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 ),
               ),
               const SizedBox(height: 24),
-
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(labelText: 'Nom complet'),
@@ -396,7 +501,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
                   final trimmed = value?.trim() ?? '';
-                  if (trimmed.isEmpty) return null; // allow empty
+                  if (trimmed.isEmpty) return null;
                   final emailRegex = RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$');
                   if (!emailRegex.hasMatch(trimmed)) {
                     return 'Email invalide';
@@ -404,9 +509,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                   return null;
                 },
               ),
-
               const SizedBox(height: 24),
-
               buildDynamicFieldList(
                 "Téléphone(s)",
                 phoneControllers,
@@ -416,9 +519,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 () => setState(
                   () => phoneControllers.add(TextEditingController()),
                 ),
-                required: false, // handled globally
               ),
-
               const SizedBox(height: 16),
               buildDynamicFieldList(
                 "Sites webs",

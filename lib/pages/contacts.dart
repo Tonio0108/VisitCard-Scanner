@@ -4,12 +4,14 @@ import 'package:collection/collection.dart';
 import 'package:visit_card_scanner/main.dart' show routeObserver;
 import 'package:visit_card_scanner/models/contact.dart';
 import 'package:visit_card_scanner/models/social_network.dart';
+import 'package:visit_card_scanner/models/visit_card.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/pages/ConfirmContactPage.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
 import 'package:visit_card_scanner/services/ocr_service.dart';
+import 'package:flutter_contacts/flutter_contacts.dart' as native;
 import 'contact_detail_page.dart';
-import 'dart:io'; // Import dart:io
+import 'dart:io';
 
 class ContactPage extends StatefulWidget {
   const ContactPage({super.key});
@@ -51,23 +53,120 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
     _loadContactsFromDb();
   }
 
+  Future<void> importContactsFromNative() async {
+    final granted = await native.FlutterContacts.requestPermission();
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Permission denied to access contacts')),
+      );
+      return;
+    }
+
+    final nativeContacts = await native.FlutterContacts.getContacts(
+      withProperties: true,
+      withPhoto: false,
+    );
+
+    // Load all existing VisitCards once to check duplicates
+    final existingCards = await DatabaseService.instance.getAllVisitCards();
+
+    int importedCount = 0;
+
+    for (var nativeContact in nativeContacts) {
+      final firstName = nativeContact.name.first;
+      if (firstName == null || firstName.trim().isEmpty) continue;
+      if (nativeContact.phones.isEmpty) continue;
+
+      String email = nativeContact.emails.isNotEmpty
+          ? nativeContact.emails.first.address
+          : '';
+
+      // Check if a VisitCard already exists matching by name + (email or phone)
+      bool exists = existingCards.any((card) {
+        if (card.fullName.toLowerCase() != firstName.toLowerCase())
+          return false;
+
+        bool emailMatches =
+            email.isNotEmpty && card.email.toLowerCase() == email.toLowerCase();
+        bool phoneMatches = nativeContact.phones.any(
+          (p) => card.contacts.any((local) => local.phoneNumber == p.number),
+        );
+
+        return emailMatches || phoneMatches;
+      });
+
+      if (exists) {
+        // Skip duplicate
+        continue;
+      }
+
+      // Build Contact list
+      List<Contact> contacts = nativeContact.phones
+          .map((p) => Contact(phoneNumber: p.number))
+          .toList();
+
+      final card = VisitCard(
+        fullName: firstName,
+        organisationName: '',
+        email: email,
+        profession: '',
+        imageUrl: null,
+        contacts: contacts,
+        websites: [],
+        socialNetworks: [],
+      );
+
+      await DatabaseService.instance.insertVisitCard(card);
+      importedCount++;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$importedCount contacts importés')));
+
+    await _loadContactsFromDb();
+  }
+
   Future<void> _loadContactsFromDb() async {
     final cards = await DatabaseService.instance.getAllVisitCards();
-    contacts = cards
-        .map(
-          (card) => {
-            'name': card.fullName,
-            'org': card.organisationName,
-            'role': card.profession,
-            'email': card.email,
-            'phones': card.contacts,
-            'websites': card.websites,
-            'socials': card.socialNetworks,
-            'id': card.id,
-            'image': card.imageUrl, // Use the stored local image path
-          },
-        )
-        .toList();
+
+    final nativeGranted = await native.FlutterContacts.requestPermission();
+    List<native.Contact> nativeContacts = [];
+    if (nativeGranted) {
+      nativeContacts = await native.FlutterContacts.getContacts(
+        withProperties: true,
+      );
+    }
+
+    contacts = cards.map((card) {
+      final isNative = card.nativeId != null
+          ? nativeContacts.any((c) => c.id == card.nativeId)
+          : nativeContacts.any(
+              (c) =>
+                  c.name.first.toLowerCase() == card.fullName.toLowerCase() &&
+                  (c.emails.any((e) => e.address == card.email) ||
+                      c.phones.any(
+                        (p) => card.contacts.any(
+                          (local) => local.phoneNumber == p.number,
+                        ),
+                      )),
+            );
+
+      return {
+        'name': card.fullName,
+        'org': card.organisationName,
+        'role': card.profession,
+        'email': card.email,
+        'phones': card.contacts,
+        'websites': card.websites,
+        'socials': card.socialNetworks,
+        'id': card.id,
+        'image': card.imageUrl,
+        'isNative': isNative,
+        'nativeId': card.nativeId,
+      };
+    }).toList();
+
     setState(() => isLoading = false);
   }
 
@@ -148,36 +247,39 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
                 Expanded(
                   child: ListView(
                     padding: const EdgeInsets.all(16),
-                    children: [
-                      ...groupedContacts.entries.expand(
-                        (entry) => [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8.0),
-                            child: Text(
-                              entry.key,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                    children: groupedContacts.entries
+                        .expand(
+                          (entry) => [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8.0,
+                              ),
+                              child: Text(
+                                entry.key,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                          ),
-                          ...entry.value.map(
-                            (contact) => buildContactCard(
-                              name: contact['name'] as String,
-                              org: contact['org'] as String,
-                              role: contact['role'] as String,
-                              email: contact['email'] as String,
-                              phones: contact['phones'] as List<Contact>,
-                              websites: contact['websites'] as List<Website>,
-                              socials:
-                                  contact['socials'] as List<SocialNetwork>,
-                              image: contact['image'],
-                              id: contact['id'] as int,
+                            ...entry.value.map(
+                              (contact) => buildContactCard(
+                                name: contact['name'],
+                                org: contact['org'],
+                                role: contact['role'],
+                                email: contact['email'],
+                                phones: contact['phones'],
+                                websites: contact['websites'],
+                                socials: contact['socials'],
+                                image: contact['image'],
+                                id: contact['id'],
+                                isNative: contact['isNative'],
+                                nativeId: contact['nativeId'],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        )
+                        .toList(),
                   ),
                 ),
               ],
@@ -195,57 +297,58 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
             'Vos contacts',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          IconButton(
-            onPressed: () async {
-              final ocrService = OCRService();
-              final result = await ocrService.scanAndParseVisitCardFromCamera(
-                context,
-              );
-              ocrService.dispose();
+          Row(
+            children: [
+              IconButton(
+                onPressed: importContactsFromNative,
+                icon: const Icon(Icons.download),
+                tooltip: 'Importer depuis les contacts natifs',
+              ),
+              IconButton(
+                onPressed: () async {
+                  final ocrService = OCRService();
+                  final result = await ocrService
+                      .scanAndParseVisitCardFromCamera(context);
+                  ocrService.dispose();
 
-              if (result != null) {
-                print('Full Text: ${result.fullText}');
-                print('Name: ${result.name}');
-                print('Company: ${result.company}');
-                print('Profession: ${result.profession}');
-                print('Phones: ${result.phones}');
-                print('Emails: ${result.emails}');
-                print('Websites: ${result.websites}');
+                  if (result != null) {
+                    int visitCardId = 1;
+                    List<Contact> contacts = result.phones
+                        .map(
+                          (phone) => Contact(
+                            visitCardId: visitCardId,
+                            phoneNumber: phone,
+                          ),
+                        )
+                        .toList();
 
-                int visitCardId = 1;
+                    List<Website> websites = result.websites
+                        .map(
+                          (website) =>
+                              Website(visitCardId: visitCardId, link: website),
+                        )
+                        .toList();
 
-                List<Contact> contacts = result.phones
-                    .map(
-                      (phone) =>
-                          Contact(visitCardId: visitCardId, phoneNumber: phone),
-                    )
-                    .toList();
-
-                List<Website> websites = result.websites
-                    .map(
-                      (website) =>
-                          Website(visitCardId: visitCardId, link: website),
-                    )
-                    .toList();
-
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ConfirmFormPage(
-                      name: result.name,
-                      org: result.company,
-                      role: result.profession, // Pass the local image path
-                      email: result.emails.isNotEmpty
-                          ? result.emails.first
-                          : null,
-                      phones: contacts,
-                      websites: websites,
-                    ),
-                  ),
-                );
-              }
-            },
-            icon: const Icon(Icons.qr_code_scanner_rounded),
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ConfirmFormPage(
+                          name: result.name,
+                          org: result.company,
+                          role: result.profession,
+                          email: result.emails.isNotEmpty
+                              ? result.emails.first
+                              : null,
+                          phones: contacts,
+                          websites: websites,
+                        ),
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+              ),
+            ],
           ),
         ],
       ),
@@ -261,7 +364,9 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
     List<Website>? websites,
     List<SocialNetwork>? socials,
     required int id,
-    String? image, // This is now the local path
+    String? image,
+    required bool isNative,
+    String? nativeId,
   }) {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
@@ -273,12 +378,13 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
               name: name,
               org: org,
               role: role,
-              image: image, // Pass the local image path
+              image: image,
               email: email,
               phones: phones,
               websites: websites,
               socials: socials,
               id: id,
+              nativeId: nativeId,
             ),
           ),
         );
@@ -298,15 +404,37 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
           padding: const EdgeInsets.all(12.0),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: const Color.fromARGB(255, 231, 231, 231),
-                backgroundImage: image != null && image.isNotEmpty
-                    ? FileImage(File(image)) // Use FileImage for local path
-                    : null,
-                child: (image == null || image.isEmpty)
-                    ? const Icon(Icons.person, size: 30)
-                    : null,
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: const Color.fromARGB(255, 231, 231, 231),
+                    backgroundImage: image != null && image.isNotEmpty
+                        ? FileImage(File(image))
+                        : null,
+                    child: (image == null || image.isEmpty)
+                        ? const Icon(Icons.person, size: 30)
+                        : null,
+                  ),
+                  if (isNative)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1),
+                        ),
+                        child: const Icon(
+                          Icons.check,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(

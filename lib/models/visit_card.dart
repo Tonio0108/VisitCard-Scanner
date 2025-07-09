@@ -8,7 +8,7 @@ class VisitCard {
   final String organisationName;
   final String email;
   final String profession;
-
+  String? nativeId; // ✅ Native contact ID
   List<Contact> contacts;
   List<Website> websites;
   List<SocialNetwork> socialNetworks;
@@ -20,6 +20,7 @@ class VisitCard {
     required this.organisationName,
     required this.email,
     required this.profession,
+    this.nativeId, // ✅ Constructor param
     this.contacts = const [],
     this.websites = const [],
     this.socialNetworks = const [],
@@ -29,12 +30,15 @@ class VisitCard {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'fullName': fullName,
       'organisationName': organisationName,
       'email': email,
       'profession': profession,
+      'nativeId': nativeId, // ✅ Save native ID
       'contacts': contacts.map((c) => c.toMap()).toList(),
       'websites': websites.map((w) => w.toMap()).toList(),
       'socialNetworks': socialNetworks.map((s) => s.toMap()).toList(),
+      'imageUrl': imageUrl,
     };
   }
 
@@ -45,6 +49,7 @@ class VisitCard {
       organisationName: map['organisationName'],
       email: map['email'],
       profession: map['profession'],
+      nativeId: map['nativeId'], // ✅ Load native ID
       contacts:
           (map['contacts'] as List<dynamic>?)
               ?.map((item) => Contact.fromMap(item))
@@ -60,6 +65,7 @@ class VisitCard {
               ?.map((item) => SocialNetwork.fromMap(item))
               .toList() ??
           [],
+      imageUrl: map['imageUrl'],
     );
   }
 }

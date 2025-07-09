@@ -1,13 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:visit_card_scanner/models/contact.dart';
 import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
-// Import de la page de confirmation
 import 'ConfirmContactPage.dart';
-import 'dart:io'; // Import dart:io
-
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_contacts/flutter_contacts.dart' as native;
 
 Future<void> _launchPhone(String number) async {
   final uri = Uri.parse('tel:$number');
@@ -36,12 +35,13 @@ class ContactDetailPage extends StatefulWidget {
   final String name;
   final String org;
   final String role;
-  final String? image; // This is now the local path or null
+  final String? image;
   final String? email;
   final List<Contact> phones;
   final List<Website>? websites;
   final List<SocialNetwork>? socials;
   final int id;
+  final String? nativeId;
 
   const ContactDetailPage({
     super.key,
@@ -54,6 +54,7 @@ class ContactDetailPage extends StatefulWidget {
     this.websites,
     this.socials,
     required this.id,
+    this.nativeId,
   });
 
   @override
@@ -61,10 +62,73 @@ class ContactDetailPage extends StatefulWidget {
 }
 
 class _ContactDetailPageState extends State<ContactDetailPage> {
-  // Track expanded state for each list type
   bool _phonesExpanded = false;
   bool _websitesExpanded = false;
   bool _socialsExpanded = false;
+  bool _isInNativeContacts = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfInNative();
+  }
+
+  Future<void> _checkIfInNative() async {
+    final granted = await native.FlutterContacts.requestPermission();
+    if (!granted) return;
+
+    if (widget.nativeId != null) {
+      final contact = await native.FlutterContacts.getContact(
+        widget.nativeId!,
+        withProperties: true,
+      );
+      setState(() => _isInNativeContacts = contact != null);
+      return;
+    }
+
+    // fallback match if no nativeId
+    final contacts = await native.FlutterContacts.getContacts(
+      withProperties: true,
+    );
+    final exists = contacts.any(
+      (c) =>
+          c.name.first.toLowerCase() == widget.name.toLowerCase() &&
+          (c.emails.any((e) => e.address == widget.email) ||
+              c.phones.any(
+                (p) =>
+                    widget.phones.any((local) => local.phoneNumber == p.number),
+              )),
+    );
+    setState(() => _isInNativeContacts = exists);
+  }
+
+  Future<void> _addToNativeContacts() async {
+    final newContact = native.Contact()
+      ..name = native.Name(first: widget.name)
+      ..phones = widget.phones.map((p) => native.Phone(p.phoneNumber)).toList()
+      ..emails = (widget.email?.isNotEmpty ?? false)
+          ? [native.Email(widget.email!)]
+          : []
+      ..organizations = widget.org.isNotEmpty
+          ? [native.Organization(company: widget.org, title: widget.role)]
+          : [];
+
+    if (widget.image != null && widget.image!.isNotEmpty) {
+      final file = File(widget.image!);
+      if (await file.exists()) {
+        newContact.photo = await file.readAsBytes();
+      }
+    }
+
+    await newContact.insert();
+
+    if (mounted) {
+      setState(() => _isInNativeContacts = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Contact ajouté aux contacts natifs")),
+      );
+    }
+  }
 
   Widget _buildListCard({
     required IconData icon,
@@ -127,7 +191,7 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmer la suppression'),
-        content: const Text('Êtes-vous sûr de vouloir supprimer ce contact ?'),
+        content: const Text('Etes-vous sûr de vouloir supprimer ce contact ?'),
         actions: [
           TextButton(
             child: const Text('Annuler'),
@@ -135,24 +199,30 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
           ),
           TextButton(
             child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
-            onPressed: () async {
-              Navigator.of(context).pop(true);
-            },
+            onPressed: () => Navigator.of(context).pop(true),
           ),
         ],
       ),
     );
 
     if (confirm == true) {
-      // You might want to delete the local image file here as well
-      // if (widget.image != null && widget.image!.isNotEmpty) {
-      //   final file = File(widget.image!);
-      //   if (await file.exists()) {
-      //     await file.delete();
-      //   }
-      // }
       await DatabaseService.instance.deleteVisitCard(widget.id);
-      Navigator.of(context).pop(true);
+
+      final granted = await native.FlutterContacts.requestPermission();
+      if (granted) {
+        final contacts = await native.FlutterContacts.getContacts(
+          withProperties: true,
+        );
+
+        if (widget.nativeId != null) {
+          final contact = await native.FlutterContacts.getContact(
+            widget.nativeId!,
+          );
+          if (contact != null) await contact.delete();
+        }
+      }
+
+      if (mounted) Navigator.of(context).pop(true);
     }
   }
 
@@ -176,7 +246,7 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                     name: widget.name,
                     org: widget.org,
                     role: widget.role,
-                    image: widget.image, // Pass the current local image path
+                    image: widget.image,
                     email: widget.email,
                     phones: widget.phones,
                     websites: widget.websites,
@@ -186,7 +256,6 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
               );
 
               if (updatedCard != null && context.mounted) {
-                // Refresh the page with the updated data
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
@@ -195,7 +264,7 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                       name: updatedCard.fullName,
                       org: updatedCard.organisationName,
                       role: updatedCard.profession,
-                      image: updatedCard.imageUrl, // Use the updated imageUrl
+                      image: updatedCard.imageUrl,
                       email: updatedCard.email,
                       phones: updatedCard.contacts,
                       websites: updatedCard.websites,
@@ -217,9 +286,7 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
               radius: 48,
               backgroundColor: const Color.fromARGB(255, 231, 231, 231),
               backgroundImage: widget.image != null && widget.image!.isNotEmpty
-                  ? FileImage(
-                      File(widget.image!),
-                    ) // Use FileImage for local path
+                  ? FileImage(File(widget.image!))
                   : null,
               child: (widget.image == null || widget.image!.isEmpty)
                   ? const Icon(Icons.person, size: 48)
@@ -236,8 +303,29 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
               style: const TextStyle(color: Colors.grey, fontSize: 16),
               textAlign: TextAlign.center,
             ),
+            if (!_isInNativeContacts)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                  ),
+                  icon: const Icon(Icons.contact_phone, color: Colors.white),
+                  label: const Text(
+                    "Ajouter aux contacts natifs",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onPressed: _addToNativeContacts,
+                ),
+              ),
             const SizedBox(height: 24),
-
             if (widget.email != null && widget.email!.isNotEmpty)
               Card(
                 color: Colors.white,
@@ -254,7 +342,6 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                   ),
                 ),
               ),
-
             if (widget.phones.isNotEmpty)
               _buildListCard(
                 icon: Icons.phone,
@@ -268,7 +355,6 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                 },
                 onTapItem: _launchPhone,
               ),
-
             if (widget.websites != null && widget.websites!.isNotEmpty)
               _buildListCard(
                 icon: Icons.language,
@@ -282,7 +368,6 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                 },
                 onTapItem: _launchUrl,
               ),
-
             if (widget.socials != null && widget.socials!.isNotEmpty)
               _buildListCard(
                 icon: Icons.alternate_email,
@@ -297,12 +382,10 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                   setState(() => _socialsExpanded = !_socialsExpanded);
                 },
               ),
-
             const SizedBox(height: 24),
           ],
         ),
       ),
-
       floatingActionButton: FloatingActionButton(
         onPressed: _confirmDelete,
         backgroundColor: Colors.redAccent,

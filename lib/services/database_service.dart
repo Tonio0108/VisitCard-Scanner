@@ -33,6 +33,7 @@ class DatabaseService {
         organisationName TEXT,
         email TEXT,
         profession TEXT,
+        nativeId TEXT, -- ✅ NEW COLUMN
         imageUrl TEXT DEFAULT 'assets/images/placeholder.webp'
       );
     ''');
@@ -76,6 +77,7 @@ class DatabaseService {
       'organisationName': card.organisationName,
       'email': card.email,
       'profession': card.profession,
+      'nativeId': card.nativeId, // ✅ added
       'imageUrl': card.imageUrl,
     });
 
@@ -141,6 +143,7 @@ class DatabaseService {
           organisationName: map['organisationName'] as String,
           email: map['email'] as String,
           profession: map['profession'] as String,
+          nativeId: map['nativeId'] as String?, // ✅ added
           imageUrl: map['imageUrl'] as String?,
           contacts: contacts.map((c) => Contact.fromMap(c)).toList(),
           websites: websites.map((w) => Website.fromMap(w)).toList(),
@@ -165,6 +168,7 @@ class DatabaseService {
         'organisationName': card.organisationName,
         'email': card.email,
         'profession': card.profession,
+        'nativeId': card.nativeId, // ✅ added
         'imageUrl': card.imageUrl,
       },
       where: 'id = ?',
