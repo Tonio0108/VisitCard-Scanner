@@ -13,12 +13,16 @@ class DatabaseService {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    return _database = await _initDB();
+    _database = await _initDB();
+    return _database!;
   }
 
   Future<Database> _initDB() async {
-    final path = join(await getDatabasesPath(), 'visit_card.db');
-    return await openDatabase(path, version: 1, onCreate: _onCreate);
+    return openDatabase(
+      join(await getDatabasesPath(), 'visit_card.db'),
+      onCreate: _onCreate,
+      version: 1,
+    );
   }
 
   Future _onCreate(Database db, int version) async {
@@ -51,7 +55,7 @@ class DatabaseService {
       );
     ''');
 
-    await db.execute('''
+    return db.execute('''
       CREATE TABLE SocialNetwork (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         visitCardId INTEGER,
@@ -60,87 +64,6 @@ class DatabaseService {
         FOREIGN KEY (visitCardId) REFERENCES VisitCard(id)
       );
     ''');
-
-    // final List<Map<String, dynamic>> visitCards = [
-    //   {
-    //     'fullName': 'Alice Smith',
-    //     'organisationName': 'Tech Co',
-    //     'email': 'alice@techco.com',
-    //     'profession': 'Product Manager',
-    //     'imageUrl': null,
-    //     'contacts': ['+111111111', '+222222222'],
-    //     'websites': ['https://alice.dev'],
-    //     'socials': [
-    //       {'title': 'LinkedIn', 'userName': 'alice-smith'},
-    //       {'title': 'Twitter', 'userName': '@alicePM'},
-    //     ],
-    //   },
-    //   {
-    //     'fullName': 'Bob Johnson',
-    //     'organisationName': 'Design Inc',
-    //     'email': 'bob@designinc.com',
-    //     'profession': 'UX Designer',
-    //     'imageUrl': null,
-    //     'contacts': ['+333333333'],
-    //     'websites': ['https://bobdesign.com'],
-    //     'socials': [
-    //       {'title': 'Dribbble', 'userName': 'bobux'},
-    //     ],
-    //   },
-    //   {
-    //     'fullName': 'Bobo Rak',
-    //     'organisationName': 'Design Inc',
-    //     'email': 'bob@designinc.com',
-    //     'profession': 'UX Designer',
-    //     'imageUrl': null,
-    //     'contacts': ['+333333333'],
-    //     'websites': ['https://bobdesign.com'],
-    //     'socials': [
-    //       {'title': 'Dribbble', 'userName': 'bobux'},
-    //     ],
-    //   },
-    //   {
-    //     'fullName': 'Rasoa Jojo',
-    //     'organisationName': 'Design Inc',
-    //     'email': 'bob@designinc.com',
-    //     'profession': 'UX Designer',
-    //     'imageUrl': null,
-    //     'contacts': ['+333333333'],
-    //     'websites': ['https://bobdesign.com'],
-    //     'socials': [
-    //       {'title': 'Dribbble', 'userName': 'bobux'},
-    //     ],
-    //   },
-    // ];
-
-    // for (final card in visitCards) {
-    //   final visitCardId = await db.insert('VisitCard', {
-    //     'fullName': card['fullName'],
-    //     'organisationName': card['organisationName'],
-    //     'email': card['email'],
-    //     'profession': card['profession'],
-    //     'imageUrl': card['imageUrl'],
-    //   });
-
-    //   for (final phone in card['contacts']) {
-    //     await db.insert('Contact', {
-    //       'visitCardId': visitCardId,
-    //       'phoneNumber': phone,
-    //     });
-    //   }
-
-    //   for (final link in card['websites']) {
-    //     await db.insert('Website', {'visitCardId': visitCardId, 'link': link});
-    //   }
-
-    //   for (final social in card['socials']) {
-    //     await db.insert('SocialNetwork', {
-    //       'visitCardId': visitCardId,
-    //       'title': social['title'],
-    //       'userName': social['userName'],
-    //     });
-    //   }
-    // }
   }
 
   // Insert VisitCard with nested models
@@ -208,6 +131,7 @@ class DatabaseService {
         'SocialNetwork',
         where: 'visitCardId = ?',
         whereArgs: [id],
+        orderBy: "title COLLATE NOCASE ASC", // Added ordering for consistency
       );
 
       cards.add(

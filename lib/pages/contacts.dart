@@ -204,15 +204,13 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
               ocrService.dispose();
 
               if (result != null) {
+                print('Full Text: ${result.fullText}');
                 print('Name: ${result.name}');
                 print('Company: ${result.company}');
                 print('Profession: ${result.profession}');
                 print('Phones: ${result.phones}');
                 print('Emails: ${result.emails}');
                 print('Websites: ${result.websites}');
-                for (final social in result.socialNetworks) {
-                  print('${social.platform}: ${social.username}');
-                }
 
                 int visitCardId = 1;
 
@@ -230,16 +228,6 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
                     )
                     .toList();
 
-                List<SocialNetwork> socialProfiles = result.socialNetworks
-                    .map(
-                      (social) => SocialNetwork(
-                        visitCardId: visitCardId,
-                        title: social.platform,
-                        userName: social.username,
-                      ),
-                    )
-                    .toList();
-
                 await Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -252,7 +240,6 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
                           : null,
                       phones: contacts,
                       websites: websites,
-                      socials: socialProfiles,
                     ),
                   ),
                 );

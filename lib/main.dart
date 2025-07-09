@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:visit_card_scanner/pages/contacts.dart';
 import 'package:visit_card_scanner/pages/scanner.dart';
 
@@ -9,7 +7,6 @@ final RouteObserver<ModalRoute<void>> routeObserver =
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await deleteDatabase(join(await getDatabasesPath(), 'visit_card.db'));
   runApp(const MainApp());
 }
 

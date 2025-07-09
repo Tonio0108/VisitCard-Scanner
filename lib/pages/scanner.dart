@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:visit_card_scanner/models/contact.dart';
-import 'package:visit_card_scanner/models/social_network.dart';
+// import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/pages/confirmContactPage.dart';
 import 'package:visit_card_scanner/services/ocr_service.dart';
@@ -41,9 +41,6 @@ class AddContactScreen extends StatelessWidget {
                     print('Phones: ${result.phones}');
                     print('Emails: ${result.emails}');
                     print('Websites: ${result.websites}');
-                    for (final social in result.socialNetworks) {
-                      print('${social.platform}: ${social.username}');
-                    }
 
                     int visitCardId = 1;
 
@@ -63,16 +60,6 @@ class AddContactScreen extends StatelessWidget {
                         )
                         .toList();
 
-                    List<SocialNetwork> socialProfiles = result.socialNetworks
-                        .map(
-                          (social) => SocialNetwork(
-                            visitCardId: visitCardId,
-                            title: social.platform,
-                            userName: social.username,
-                          ),
-                        )
-                        .toList();
-
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -85,7 +72,6 @@ class AddContactScreen extends StatelessWidget {
                               : null,
                           phones: contacts,
                           websites: websites,
-                          socials: socialProfiles,
                         ),
                       ),
                     );

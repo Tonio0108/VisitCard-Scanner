@@ -11,7 +11,6 @@ class OCRResult {
   final List<String> phones;
   final List<String> emails;
   final List<String> websites;
-  final List<SocialProfile> socialNetworks;
 
   OCRResult({
     required this.fullText,
@@ -21,18 +20,13 @@ class OCRResult {
     required this.phones,
     required this.emails,
     required this.websites,
-    required this.socialNetworks,
   });
 }
 
-class SocialProfile {
-  final String platform;
-  final String username;
-
-  SocialProfile({required this.platform, required this.username});
-}
-
 class OCRService {
+  // Initialize TextRecognizer. For basic Latin script, default is usually fine.
+  // If you want to explicitly hint for French, you could use:
+  // final TextRecognizer _textRecognizer = TextRecognizer(script: TextScript.latin);
   final TextRecognizer _textRecognizer = TextRecognizer();
 
   Future<OCRResult?> scanAndParseVisitCardFromCamera(
@@ -44,28 +38,38 @@ class OCRService {
 
     final imageFile = File(pickedFile.path);
     final inputImage = InputImage.fromFile(imageFile);
+
+    // Process OCR
     final recognizedText = await _textRecognizer.processImage(inputImage);
     final text = recognizedText.text;
 
-    // Sépare les lignes non vides, en conservant leur ordre d'apparition (important pour nom/profession)
+    // Delete image file after processing
+    try {
+      if (await imageFile.exists()) {
+        await imageFile.delete();
+        print('Temporary image file deleted.');
+      }
+    } catch (e) {
+      print('Failed to delete image file: $e');
+    }
+
+    // Split non-empty lines
     final lines = text
         .split('\n')
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty)
         .toList();
 
-    // Extraction par regex
+    // Extract structured info
     final phones = _extractPhones(text);
     final emails = _extractEmails(text);
     final websites = _extractWebsites(text);
-    final socialProfiles = _extractSocialProfiles(text);
 
-    // Détection nom, compagnie, profession
     final name = _guessName(recognizedText);
     final profession = _guessProfession(lines, name);
-    final company = _guessCompany(lines);
+    final company = _guessCompany(recognizedText);
 
-    // Affichage du texte détecté (max 100 caractères)
+    // Show short preview of detected text
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -82,23 +86,31 @@ class OCRService {
       phones: phones,
       emails: emails,
       websites: websites,
-      socialNetworks: socialProfiles,
     );
   }
 
   // --- Extraction regex ---
 
   List<String> _extractPhones(String text) {
+    // This regex is designed to capture common phone number formats including
+    // international prefixes, spaces, hyphens, and parentheses.
     final phoneRegex = RegExp(r'(\+?\d[\d\s\-\(\)]{6,}\d)');
     return phoneRegex.allMatches(text).map((m) => m.group(0)!).toSet().toList();
   }
 
   List<String> _extractEmails(String text) {
-    final emailRegex = RegExp(r'\b[\w\.-]+@[\w\.-]+\.\w{2,}\b');
+    // Match any word containing '@' and a known domain keyword
+    final emailRegex = RegExp(
+      r'\b\S*@(?:gmail|yahoo|hotmail|outlook|icloud|protonmail|live|aol)\S*\b',
+      caseSensitive: false,
+    );
+
     return emailRegex.allMatches(text).map((m) => m.group(0)!).toSet().toList();
   }
 
   List<String> _extractWebsites(String text) {
+    // This regex matches common website formats, including optional http/https, www,
+    // and various top-level domains, excluding patterns that look like emails.
     final websiteRegex = RegExp(
       r'(?<!@)\b((https?:\/\/)?(www\.)?[a-zA-Z0-9\-]+\.[a-z]{2,}(\/\S*)?)\b',
       caseSensitive: false,
@@ -110,63 +122,113 @@ class OCRService {
         .toList();
   }
 
-  List<SocialProfile> _extractSocialProfiles(String text) {
-    final socialPlatforms = [
-      'Facebook',
-      'Twitter',
-      'Instagram',
-      'LinkedIn',
-      'X',
-      'GitHub',
-    ];
-    final profiles = <SocialProfile>[];
+  // --- Détection nom, compagnie, profession ---
 
-    for (final platform in socialPlatforms) {
-      final regex = RegExp(
-        '$platform[:\\s]*([\\w.@/_-]+)',
-        caseSensitive: false,
-      );
-      final matches = regex.allMatches(text);
-      for (final m in matches) {
-        final username = m.group(1)?.trim() ?? '';
-        if (username.isNotEmpty) {
-          profiles.add(SocialProfile(platform: platform, username: username));
-        }
-      }
+  bool looksLikeName(String text, Rect boundingBox, Size imageSize) {
+    // 1. Exclude URLs, emails, phones, digits
+    if (text.contains('@') || text.toLowerCase().contains('www')) return false;
+    if (RegExp(r'\d').hasMatch(text)) return false;
+    if (RegExp(r'(\+?\d[\d\s\-\(\)]{6,}\d)').hasMatch(text)) return false;
+
+    final words = text.trim().split(RegExp(r'\s+'));
+    if (words.length < 1 || words.length > 4) return false;
+
+    // 2. Capitalization check - allow for relaxed scenario
+    // At least 40% of words should start with an uppercase letter.
+    final capitalizedCount = words.where((w) {
+      if (w.isEmpty) return false;
+      final firstChar = w[0];
+      return firstChar.toUpperCase() == firstChar &&
+          RegExp(r'[A-ZÉÈÀÂÊÎÔÛÇ]').hasMatch(firstChar);
+    }).length;
+
+    if (capitalizedCount < words.length * 0.4) return false;
+
+    // 3. Exclude trademark/brand symbols
+    final lowerText = text.toLowerCase();
+    if (lowerText.contains('®') || lowerText.contains('™')) return false;
+
+    // 4. Exclude common brand/company words
+    final brandWords = [
+      'real',
+      'living',
+      'estate',
+      'inc',
+      'llc',
+      'corp',
+      'group',
+      'company',
+      'société',
+      'entreprise',
+      'groupe',
+      'compagnie',
+      'associés',
+      'commerce',
+      'immobilier',
+      'industries',
+    ];
+
+    if (brandWords.any((bw) => lowerText.contains(bw))) return false;
+
+    // 5. Relax bounding box position check:
+    //    Exclude if in top-left 15% x 15% of image, where logos or general info might be.
+    if (boundingBox.left < imageSize.width * 0.15 &&
+        boundingBox.top < imageSize.height * 0.15) {
+      return false;
     }
 
-    return profiles;
+    return true;
   }
-
-  // --- Détection nom, compagnie, profession ---
 
   String? _guessName(RecognizedText recognizedText) {
     if (recognizedText.blocks.isEmpty) return null;
 
-    // Flatten all lines from all blocks into one list
-    final allLines = recognizedText.blocks.expand((block) => block.lines);
+    final allLines = recognizedText.blocks
+        .expand((block) => block.lines)
+        .toList();
+    if (allLines.isEmpty) return null;
 
-    // Find the line with the largest bounding box height
-    TextLine? maxHeightLine;
-    double maxHeight = 0;
+    final imageHeight = recognizedText.blocks.first.boundingBox.bottom;
+    final imageWidth = recognizedText.blocks.first.boundingBox.right;
+
+    final companyName = _guessCompany(recognizedText);
+    print('Company detected for exclusion in name guessing: $companyName');
+
+    final candidates = <TextLine>[];
 
     for (final line in allLines) {
-      final height = line.boundingBox.height;
-      if (height > maxHeight) {
-        maxHeight = height;
-        maxHeightLine = line;
+      final text = line.text.trim();
+      final box = line.boundingBox;
+
+      // Exclude if the text matches the detected company name
+      if (companyName != null &&
+          companyName.toLowerCase() == text.toLowerCase()) {
+        print('Exclude "$text": matches company name');
+        continue;
       }
+
+      // Use the looksLikeName heuristic to filter candidates
+      if (!looksLikeName(text, box, Size(imageWidth, imageHeight))) {
+        print('Exclude "$text": failed looksLikeName criteria');
+        continue;
+      }
+
+      candidates.add(line);
+      print('Accepted name candidate: "$text"');
     }
 
-    // Return text if it looks like a name (e.g., not an email or website)
-    if (maxHeightLine != null) {
-      final text = maxHeightLine.text.trim();
-      if (!text.contains('@') && !text.toLowerCase().contains('www')) {
-        return text;
-      }
+    if (candidates.isEmpty) {
+      print('No valid name candidates found.');
+      return null;
     }
 
-    return null;
+    // Choose candidate with the largest bounding box height (heuristic for prominent text/name)
+    candidates.sort(
+      (a, b) => b.boundingBox.height.compareTo(a.boundingBox.height),
+    );
+    print('Chosen name: "${candidates.first.text.trim()}"');
+
+    return candidates.first.text.trim();
   }
 
   String? _guessProfession(List<String> lines, String? name) {
@@ -175,56 +237,174 @@ class OCRService {
     final nameIndex = lines.indexOf(name);
     if (nameIndex == -1) return null;
 
-    // Helper function to check if a line looks like a profession line
+    // Helper function to check if a line looks like a profession/title
     bool looksLikeProfession(String line) {
       if (line.trim().isEmpty) return false;
-      if (line.contains('@') || line.toLowerCase().contains('www'))
+      // Exclude lines that look like contact info
+      if (line.contains('@') ||
+          line.toLowerCase().contains('www') ||
+          RegExp(r'\+?\d').hasMatch(line))
         return false;
-      if (RegExp(r'\+?\d').hasMatch(line))
-        return false; // exclude phone numbers
       final wordCount = line.trim().split(RegExp(r'\s+')).length;
-      if (wordCount < 2 || wordCount > 6) return false; // too short or too long
-      return true;
+      // Profession titles are usually between 1 and 6 words.
+      if (wordCount < 1 || wordCount > 6) return false;
+      // Common keywords for professions (can be expanded)
+      final professionKeywords = [
+        // English
+        'manager', 'director', 'engineer', 'developer', 'consultant', 'expert',
+        'realtor',
+        'agent',
+        'specialist',
+        'analyst',
+        'president',
+        'vice',
+        'sales',
+        'marketing', 'ceo', 'cto',
+
+        // French
+        'directeur', 'directrice', 'ingénieur', 'développeur', 'consultant',
+        'experte', 'gestionnaire', 'président', 'présidente', 'commercial',
+        'technicien', 'technicienne', 'vendeur', 'vendeuse', 'analyste',
+        'responsable', 'représentant', 'designer', 'chef', 'comptable',
+      ];
+      // Check if any word in the line is a recognized profession keyword (case-insensitive)
+      return professionKeywords.any((kw) => line.toLowerCase().contains(kw));
     }
 
-    // Check the line just below the name
-    if (nameIndex + 1 < lines.length) {
-      final candidate = lines[nameIndex + 1];
-      if (looksLikeProfession(candidate)) {
-        return candidate;
-      }
-    }
-
-    // Look at next 2 lines below name for a candidate profession
-    for (var i = nameIndex + 2; i <= nameIndex + 3 && i < lines.length; i++) {
+    // Look at lines immediately following the name
+    // We check the next 3 lines as profession might not be directly adjacent.
+    for (var i = nameIndex + 1; i <= nameIndex + 3 && i < lines.length; i++) {
       final candidate = lines[i];
       if (looksLikeProfession(candidate)) {
         return candidate;
       }
     }
 
-    // Fallback: if no profession found, return null
+    // Fallback: if no clear profession found
     return null;
   }
 
-  String? _guessCompany(List<String> lines) {
-    // Cherche en partant du bas, une ligne en majuscule avec mots type SARL, LLC etc ou longue
-    for (var i = lines.length - 1; i >= 0; i--) {
-      final line = lines[i];
-      if (line.trim().isEmpty) continue;
+  String? _guessCompany(RecognizedText recognizedText) {
+    if (recognizedText.blocks.isEmpty) return null;
 
-      final isUpper = line == line.toUpperCase() && line.length > 2;
-      final hasCompanyKeywords = RegExp(
-        r'(SARL|LLC|INC|LTD|ENTREPRISE|SAS|CORP|COMPANY|GROUP|SA|BV)',
-        caseSensitive: false,
-      ).hasMatch(line);
+    final allLines = recognizedText.blocks
+        .expand((block) => block.lines)
+        .toList();
+    if (allLines.isEmpty) return null;
 
-      if (isUpper || hasCompanyKeywords) {
-        return line.trim();
+    final imageHeight = recognizedText.blocks.first.boundingBox.bottom;
+
+    // Keywords commonly found in company names or legal forms.
+    final companyKeywords = [
+      'SARL', 'SAS', 'EURL', 'SNC', 'SA', 'SCI', 'ASSOCIATION', 'ENTREPRISE',
+      'Société', 'Groupe', 'SASU', 'AUTO-ENTREPRENEUR', 'CIE', 'CO.',
+
+      // English equivalents kept
+      'LLC',
+      'INC',
+      'LTD',
+      'BV',
+      'CO',
+      'PLC',
+      'LLP',
+      'GMBH',
+      'PVT',
+      'LIMITED',
+      'CORP',
+      'COMPANY',
+      'GROUP',
+    ];
+
+    final fallbackCompanyWords = [
+      'Entreprise',
+      'Société',
+      'Commerce',
+      'Groupe',
+      'Firme',
+      'Logo',
+      'Business',
+      'Company',
+    ];
+
+    // Less formal words that often indicate a company name, used as fallbacks.
+
+    bool looksLikeCompany(String text) {
+      final trimmed = text.trim();
+
+      if (trimmed.isEmpty || trimmed.length < 2) {
+        print('Reject company candidate (too short or empty): "$trimmed"');
+        return false;
+      }
+
+      // Check if the text contains any of the explicit company keywords (case-insensitive)
+      final hasKeyword = companyKeywords.any(
+        (kw) => RegExp(
+          r'\b' + RegExp.escape(kw) + r'\b',
+          caseSensitive: false,
+        ).hasMatch(trimmed),
+      );
+
+      // Check if a significant portion of the text is in uppercase (e.g., acronyms)
+      final uppercaseLettersCount = trimmed
+          .replaceAll(RegExp(r'[^A-Z]'), '')
+          .length;
+      final isAllUppercase =
+          trimmed.isNotEmpty &&
+          (uppercaseLettersCount / trimmed.length) >=
+              0.6; // At least 60% uppercase
+
+      // Check if the first letter is capitalized (common for company names)
+      final isCapitalized =
+          trimmed.length > 0 && trimmed[0] == trimmed[0].toUpperCase();
+
+      // Determine if the text block is in the lower half of the card (where company logos/names often appear)
+      final line = allLines.firstWhere(
+        (l) => l.text.trim() == trimmed,
+        orElse: () => allLines.first,
+      ); // Fallback to first line if not found
+      final isNearBottom = line.boundingBox.top > imageHeight / 2;
+
+      // Check if the text is one of the less formal fallback words
+      final isFallbackWord = fallbackCompanyWords.any(
+        (word) => word.toLowerCase() == trimmed.toLowerCase(),
+      );
+
+      print(
+        'Evaluating company candidate: "$trimmed" | hasKeyword: $hasKeyword | isAllUppercase: $isAllUppercase | isCapitalized: $isCapitalized | isNearBottom: $isNearBottom | isFallbackWord: $isFallbackWord',
+      );
+
+      // A candidate is considered a company name if:
+      // 1. It contains a strong company keyword AND is in the bottom half of the card, OR
+      // 2. It is mostly uppercase AND is in the bottom half of the card, OR
+      // 3. It is capitalized AND is in the bottom half AND matches a fallback company word.
+      return (hasKeyword && isNearBottom) ||
+          (isAllUppercase && isNearBottom) ||
+          (isCapitalized && isNearBottom && isFallbackWord);
+    }
+
+    final candidates = <String>[];
+
+    for (final line in allLines) {
+      final text = line.text.trim();
+      if (looksLikeCompany(text)) {
+        candidates.add(text);
+        print('Accepted company candidate: "$text"');
+      } else {
+        print('Rejected company candidate: "$text"');
       }
     }
 
-    return null;
+    if (candidates.isEmpty) {
+      print('No company candidates found.');
+      return null;
+    }
+
+    // Prioritize longer company names as they might be more complete.
+    candidates.sort((a, b) => b.length.compareTo(a.length));
+
+    print('Final chosen company name: "${candidates.first}"');
+
+    return candidates.first;
   }
 
   void dispose() {
