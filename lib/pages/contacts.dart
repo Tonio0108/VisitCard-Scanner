@@ -366,6 +366,7 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
     required int id,
     String? image,
     required bool isNative,
+
     String? nativeId,
   }) {
     return InkWell(
