@@ -70,13 +70,9 @@ class OCRService {
     final company = _guessCompany(recognizedText);
 
     // Show short preview of detected text
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Texte détecté:\n${text.substring(0, text.length.clamp(0, 100))}...',
-        ),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("Carte scannée avec succès!")));
 
     return OCRResult(
       fullText: text,

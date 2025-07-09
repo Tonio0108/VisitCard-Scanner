@@ -246,22 +246,27 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
   }
 
   void saveData() async {
-    if (!_formKey.currentState!.validate()) return;
+    final isFormValid = _formKey.currentState!.validate();
+
+    final phoneFilled = phoneControllers.any(
+      (controller) => controller.text.trim().isNotEmpty,
+    );
+    final emailFilled = emailController.text.trim().isNotEmpty;
+
+    if (!isFormValid || (!phoneFilled && !emailFilled)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Veuillez fournir au moins un email ou un téléphone"),
+        ),
+      );
+      return;
+    }
 
     final savedPhones = phoneControllers
         .map((c) => c.text.trim())
         .where((text) => text.isNotEmpty)
         .map((p) => Contact(phoneNumber: p))
         .toList();
-
-    if (savedPhones.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Au moins un numéro de téléphone est requis"),
-        ),
-      );
-      return;
-    }
 
     final savedWebsites = siteControllers
         .map((c) => c.text.trim())
@@ -283,10 +288,9 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         )
         .toList();
 
-    String? imagePathToSave = widget.image; // Start with existing image path
+    String? imagePathToSave = widget.image;
 
     if (_profileImage != null) {
-      // If a new image was picked, save it locally
       final directory = await getApplicationDocumentsDirectory();
       final String fileName = '${DateTime.now().millisecondsSinceEpoch}.png';
       final String newPath = '${directory.path}/$fileName';
@@ -303,7 +307,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
       contacts: savedPhones,
       websites: savedWebsites,
       socialNetworks: savedSocials,
-      imageUrl: imagePathToSave, // Pass the local image path here
+      imageUrl: imagePathToSave,
     );
 
     final db = DatabaseService.instance;
@@ -391,16 +395,16 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 decoration: const InputDecoration(labelText: 'Email'),
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Ce champ est requis';
-                  } else if (!RegExp(
-                    r'^[\w\.-]+@[\w\.-]+\.\w+$',
-                  ).hasMatch(value.trim())) {
+                  final trimmed = value?.trim() ?? '';
+                  if (trimmed.isEmpty) return null; // allow empty
+                  final emailRegex = RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$');
+                  if (!emailRegex.hasMatch(trimmed)) {
                     return 'Email invalide';
                   }
                   return null;
                 },
               ),
+
               const SizedBox(height: 24),
 
               buildDynamicFieldList(
@@ -412,8 +416,9 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 () => setState(
                   () => phoneControllers.add(TextEditingController()),
                 ),
-                required: true,
+                required: false, // handled globally
               ),
+
               const SizedBox(height: 16),
               buildDynamicFieldList(
                 "Sites webs",
