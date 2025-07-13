@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:visit_card_scanner/models/contact.dart';
 // import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/website.dart';
@@ -29,7 +30,13 @@ class AddContactScreen extends StatelessWidget {
             children: [
               FloatingActionButton.extended(
                 onPressed: () async {
+<<<<<<< HEAD
                   final ocrService = OCRService();
+=======
+                  final ocrService = OCRService(
+                    groqApiKey: dotenv.env['GROQ_API_KEY'] ?? '',
+                  );
+>>>>>>> 4e930c5 (V4.0.1)
                   final result = await ocrService
                       .scanAndParseVisitCardFromCamera(context);
                   ocrService.dispose();

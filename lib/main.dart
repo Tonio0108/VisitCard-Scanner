@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:visit_card_scanner/pages/contacts.dart';
 import 'package:visit_card_scanner/pages/scanner.dart';
 
@@ -7,6 +8,7 @@ final RouteObserver<ModalRoute<void>> routeObserver =
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env"); // include the dot!
   runApp(const MainApp());
 }
 

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:collection/collection.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:visit_card_scanner/main.dart' show routeObserver;
 import 'package:visit_card_scanner/models/contact.dart';
 import 'package:visit_card_scanner/models/social_network.dart';
@@ -239,7 +240,10 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
                             onPressed: isSyncing
                                 ? null
                                 : () async {
-                                    final ocrService = OCRService();
+                                    final ocrService = OCRService(
+                                      groqApiKey:
+                                          dotenv.env['GROQ_API_KEY'] ?? '',
+                                    );
                                     final result = await ocrService
                                         .scanAndParseVisitCardFromCamera(
                                           context,

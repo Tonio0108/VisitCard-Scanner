@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +13,7 @@ class OCRResult {
   final List<String> phones;
   final List<String> emails;
   final List<String> websites;
+  final bool processedWithAI;
 
   OCRResult({
     required this.fullText,
@@ -20,14 +23,109 @@ class OCRResult {
     required this.phones,
     required this.emails,
     required this.websites,
+    this.processedWithAI = false,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'fullText': fullText,
+      'name': name,
+      'company': company,
+      'profession': profession,
+      'phones': phones,
+      'emails': emails,
+      'websites': websites,
+      'processedWithAI': processedWithAI,
+    };
+  }
+}
+
+class GroqService {
+  final String apiKey;
+  final String baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
+
+  GroqService({required this.apiKey});
+
+  Future<Map<String, dynamic>?> extractBusinessCardFields(String text) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse(baseUrl),
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'model': 'llama3-8b-8192',
+              'messages': [
+                {
+                  'role': 'system',
+                  'content':
+                      '''You are an expert at extracting structured information from business cards. 
+Extract the following fields from the business card text and return ONLY a valid JSON object with these exact keys:
+- "name": Full name of the person (string or null)
+- "company": Company name (string or null)  
+- "profession": Job title or profession (string or null)
+- "phones": List of phone numbers (array of strings)
+- "emails": List of email addresses (array of strings)
+- "websites": List of websites/URLs (array of strings)
+
+Rules:
+1. Return ONLY the JSON object, no additional text
+2. If a field is not found, use null for strings or empty array for lists
+3. Clean and format the extracted data appropriately
+4. For phones, include country codes only if present
+5. For emails, ensure they are valid email addresses
+6. For websites, include full URLs when possible
+
+Example output:
+{"name": "John Doe", "company": "Tech Corp", "profession": "Software Engineer", "phones": ["+1-555-123-4567"], "emails": ["john@techcorp.com"], "websites": ["www.techcorp.com"]}
+Give only the JSON object, no additional text or explanations.
+''',
+                },
+                {
+                  'role': 'user',
+                  'content':
+                      'Extract information from this business card text:\n\n$text',
+                },
+              ],
+              'temperature': 0.1,
+              'max_tokens': 500,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final content = data['choices'][0]['message']['content'];
+
+        // Parse the JSON response
+        try {
+          final extractedData = jsonDecode(content);
+          return extractedData;
+        } catch (e) {
+          print('Error parsing Groq JSON response: $e');
+          return null;
+        }
+      } else {
+        print('Groq API error: ${response.statusCode} - ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error calling Groq API: $e');
+      return null;
+    }
+  }
 }
 
 class OCRService {
-  // Initialize TextRecognizer. For basic Latin script, default is usually fine.
-  // If you want to explicitly hint for French, you could use:
-  // final TextRecognizer _textRecognizer = TextRecognizer(script: TextScript.latin);
   final TextRecognizer _textRecognizer = TextRecognizer();
+  final GroqService? _groqService;
+
+  OCRService({String? groqApiKey})
+    : _groqService = groqApiKey != null
+          ? GroqService(apiKey: groqApiKey)
+          : null;
 
   Future<OCRResult?> scanAndParseVisitCardFromCamera(
     BuildContext context,
@@ -53,6 +151,88 @@ class OCRService {
       print('Failed to delete image file: $e');
     }
 
+    // Check connectivity with proper error handling
+    bool isOnline = false;
+    try {
+      isOnline = await _checkInternetConnectivity();
+      print('Connectivity check successful: $isOnline');
+    } catch (e) {
+      print('Connectivity check failed: $e');
+      // Assume offline if connectivity check fails
+      isOnline = false;
+
+      // Show a warning to the user
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Impossible de vérifier la connectivité. Mode heuristique utilisé.",
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+
+    OCRResult? result;
+
+    if (isOnline && _groqService != null) {
+      result = await _tryGroqExtraction(text, recognizedText, context);
+    }
+
+    // Fall back to heuristic extraction if AI fails or offline
+    if (result == null) {
+      result = await _heuristicExtraction(text, recognizedText, context);
+    }
+
+    return result;
+  }
+
+  Future<OCRResult?> _tryGroqExtraction(
+    String text,
+    RecognizedText recognizedText,
+    BuildContext context,
+  ) async {
+    try {
+      print('Attempting Groq extraction...');
+      final extractedData = await _groqService!.extractBusinessCardFields(text);
+
+      if (extractedData != null) {
+        print('Groq extraction successful');
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Carte scannée avec succès! (AI enrichi)"),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+
+        return OCRResult(
+          fullText: text,
+          name: extractedData['name'],
+          company: extractedData['company'],
+          profession: extractedData['profession'],
+          phones: List<String>.from(extractedData['phones'] ?? []),
+          emails: List<String>.from(extractedData['emails'] ?? []),
+          websites: List<String>.from(extractedData['websites'] ?? []),
+          processedWithAI: true,
+        );
+      }
+    } catch (e) {
+      print('Groq extraction failed: $e');
+    }
+    return null;
+  }
+
+  Future<OCRResult> _heuristicExtraction(
+    String text,
+    RecognizedText recognizedText,
+    BuildContext context,
+  ) async {
+    print('Using heuristic extraction...');
+
     // Split non-empty lines
     final lines = text
         .split('\n')
@@ -60,7 +240,7 @@ class OCRService {
         .where((line) => line.isNotEmpty)
         .toList();
 
-    // Extract structured info
+    // Extract structured info using existing heuristics
     final phones = _extractPhones(text);
     final emails = _extractEmails(text);
     final websites = _extractWebsites(text);
@@ -69,10 +249,15 @@ class OCRService {
     final profession = _guessProfession(lines, name);
     final company = _guessCompany(recognizedText);
 
-    // Show short preview of detected text
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text("Carte scannée avec succès!")));
+    // Show notification
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Carte scannée avec succès! (Mode heuristique)"),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
 
     return OCRResult(
       fullText: text,
@@ -82,31 +267,37 @@ class OCRService {
       phones: phones,
       emails: emails,
       websites: websites,
+      processedWithAI: false,
     );
   }
 
-  // --- Extraction regex ---
+  // --- Alternative connectivity check method ---
+  Future<bool> _checkInternetConnectivity() async {
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (e) {
+      print('Internet connectivity check failed: $e');
+      return false;
+    }
+  }
+
+  // --- Extraction regex (unchanged) ---
 
   List<String> _extractPhones(String text) {
-    // This regex is designed to capture common phone number formats including
-    // international prefixes, spaces, hyphens, and parentheses.
     final phoneRegex = RegExp(r'(\+?\d[\d\s\-\(\)]{6,}\d)');
     return phoneRegex.allMatches(text).map((m) => m.group(0)!).toSet().toList();
   }
 
   List<String> _extractEmails(String text) {
-    // Match any word containing '@' and a known domain keyword
     final emailRegex = RegExp(
       r'\b\S*@(?:gmail|yahoo|hotmail|outlook|icloud|protonmail|live|aol)\S*\b',
       caseSensitive: false,
     );
-
     return emailRegex.allMatches(text).map((m) => m.group(0)!).toSet().toList();
   }
 
   List<String> _extractWebsites(String text) {
-    // This regex matches common website formats, including optional http/https, www,
-    // and various top-level domains, excluding patterns that look like emails.
     final websiteRegex = RegExp(
       r'(?<!@)\b((https?:\/\/)?(www\.)?[a-zA-Z0-9\-]+\.[a-z]{2,}(\/\S*)?)\b',
       caseSensitive: false,
@@ -118,10 +309,9 @@ class OCRService {
         .toList();
   }
 
-  // --- Détection nom, compagnie, profession ---
+  // --- Heuristic detection methods (unchanged) ---
 
   bool looksLikeName(String text, Rect boundingBox, Size imageSize) {
-    // 1. Exclude URLs, emails, phones, digits
     if (text.contains('@') || text.toLowerCase().contains('www')) return false;
     if (RegExp(r'\d').hasMatch(text)) return false;
     if (RegExp(r'(\+?\d[\d\s\-\(\)]{6,}\d)').hasMatch(text)) return false;
@@ -129,8 +319,6 @@ class OCRService {
     final words = text.trim().split(RegExp(r'\s+'));
     if (words.length < 1 || words.length > 4) return false;
 
-    // 2. Capitalization check - allow for relaxed scenario
-    // At least 40% of words should start with an uppercase letter.
     final capitalizedCount = words.where((w) {
       if (w.isEmpty) return false;
       final firstChar = w[0];
@@ -140,11 +328,9 @@ class OCRService {
 
     if (capitalizedCount < words.length * 0.4) return false;
 
-    // 3. Exclude trademark/brand symbols
     final lowerText = text.toLowerCase();
     if (lowerText.contains('®') || lowerText.contains('™')) return false;
 
-    // 4. Exclude common brand/company words
     final brandWords = [
       'real',
       'living',
@@ -166,8 +352,6 @@ class OCRService {
 
     if (brandWords.any((bw) => lowerText.contains(bw))) return false;
 
-    // 5. Relax bounding box position check:
-    //    Exclude if in top-left 15% x 15% of image, where logos or general info might be.
     if (boundingBox.left < imageSize.width * 0.15 &&
         boundingBox.top < imageSize.height * 0.15) {
       return false;
@@ -196,14 +380,12 @@ class OCRService {
       final text = line.text.trim();
       final box = line.boundingBox;
 
-      // Exclude if the text matches the detected company name
       if (companyName != null &&
           companyName.toLowerCase() == text.toLowerCase()) {
         print('Exclude "$text": matches company name');
         continue;
       }
 
-      // Use the looksLikeName heuristic to filter candidates
       if (!looksLikeName(text, box, Size(imageWidth, imageHeight))) {
         print('Exclude "$text": failed looksLikeName criteria');
         continue;
@@ -218,7 +400,6 @@ class OCRService {
       return null;
     }
 
-    // Choose candidate with the largest bounding box height (heuristic for prominent text/name)
     candidates.sort(
       (a, b) => b.boundingBox.height.compareTo(a.boundingBox.height),
     );
@@ -233,21 +414,21 @@ class OCRService {
     final nameIndex = lines.indexOf(name);
     if (nameIndex == -1) return null;
 
-    // Helper function to check if a line looks like a profession/title
     bool looksLikeProfession(String line) {
       if (line.trim().isEmpty) return false;
-      // Exclude lines that look like contact info
       if (line.contains('@') ||
           line.toLowerCase().contains('www') ||
           RegExp(r'\+?\d').hasMatch(line))
         return false;
       final wordCount = line.trim().split(RegExp(r'\s+')).length;
-      // Profession titles are usually between 1 and 6 words.
       if (wordCount < 1 || wordCount > 6) return false;
-      // Common keywords for professions (can be expanded)
       final professionKeywords = [
-        // English
-        'manager', 'director', 'engineer', 'developer', 'consultant', 'expert',
+        'manager',
+        'director',
+        'engineer',
+        'developer',
+        'consultant',
+        'expert',
         'realtor',
         'agent',
         'specialist',
@@ -255,20 +436,33 @@ class OCRService {
         'president',
         'vice',
         'sales',
-        'marketing', 'ceo', 'cto',
-
-        // French
-        'directeur', 'directrice', 'ingénieur', 'développeur', 'consultant',
-        'experte', 'gestionnaire', 'président', 'présidente', 'commercial',
-        'technicien', 'technicienne', 'vendeur', 'vendeuse', 'analyste',
-        'responsable', 'représentant', 'designer', 'chef', 'comptable',
+        'marketing',
+        'ceo',
+        'cto',
+        'directeur',
+        'directrice',
+        'ingénieur',
+        'développeur',
+        'consultant',
+        'experte',
+        'gestionnaire',
+        'président',
+        'présidente',
+        'commercial',
+        'technicien',
+        'technicienne',
+        'vendeur',
+        'vendeuse',
+        'analyste',
+        'responsable',
+        'représentant',
+        'designer',
+        'chef',
+        'comptable',
       ];
-      // Check if any word in the line is a recognized profession keyword (case-insensitive)
       return professionKeywords.any((kw) => line.toLowerCase().contains(kw));
     }
 
-    // Look at lines immediately following the name
-    // We check the next 3 lines as profession might not be directly adjacent.
     for (var i = nameIndex + 1; i <= nameIndex + 3 && i < lines.length; i++) {
       final candidate = lines[i];
       if (looksLikeProfession(candidate)) {
@@ -276,7 +470,6 @@ class OCRService {
       }
     }
 
-    // Fallback: if no clear profession found
     return null;
   }
 
@@ -290,12 +483,21 @@ class OCRService {
 
     final imageHeight = recognizedText.blocks.first.boundingBox.bottom;
 
-    // Keywords commonly found in company names or legal forms.
     final companyKeywords = [
-      'SARL', 'SAS', 'EURL', 'SNC', 'SA', 'SCI', 'ASSOCIATION', 'ENTREPRISE',
-      'Société', 'Groupe', 'SASU', 'AUTO-ENTREPRENEUR', 'CIE', 'CO.',
-
-      // English equivalents kept
+      'SARL',
+      'SAS',
+      'EURL',
+      'SNC',
+      'SA',
+      'SCI',
+      'ASSOCIATION',
+      'ENTREPRISE',
+      'Société',
+      'Groupe',
+      'SASU',
+      'AUTO-ENTREPRENEUR',
+      'CIE',
+      'CO.',
       'LLC',
       'INC',
       'LTD',
@@ -322,8 +524,6 @@ class OCRService {
       'Company',
     ];
 
-    // Less formal words that often indicate a company name, used as fallbacks.
-
     bool looksLikeCompany(String text) {
       final trimmed = text.trim();
 
@@ -332,7 +532,6 @@ class OCRService {
         return false;
       }
 
-      // Check if the text contains any of the explicit company keywords (case-insensitive)
       final hasKeyword = companyKeywords.any(
         (kw) => RegExp(
           r'\b' + RegExp.escape(kw) + r'\b',
@@ -340,27 +539,21 @@ class OCRService {
         ).hasMatch(trimmed),
       );
 
-      // Check if a significant portion of the text is in uppercase (e.g., acronyms)
       final uppercaseLettersCount = trimmed
           .replaceAll(RegExp(r'[^A-Z]'), '')
           .length;
       final isAllUppercase =
-          trimmed.isNotEmpty &&
-          (uppercaseLettersCount / trimmed.length) >=
-              0.6; // At least 60% uppercase
+          trimmed.isNotEmpty && (uppercaseLettersCount / trimmed.length) >= 0.6;
 
-      // Check if the first letter is capitalized (common for company names)
       final isCapitalized =
           trimmed.length > 0 && trimmed[0] == trimmed[0].toUpperCase();
 
-      // Determine if the text block is in the lower half of the card (where company logos/names often appear)
       final line = allLines.firstWhere(
         (l) => l.text.trim() == trimmed,
         orElse: () => allLines.first,
-      ); // Fallback to first line if not found
+      );
       final isNearBottom = line.boundingBox.top > imageHeight / 2;
 
-      // Check if the text is one of the less formal fallback words
       final isFallbackWord = fallbackCompanyWords.any(
         (word) => word.toLowerCase() == trimmed.toLowerCase(),
       );
@@ -369,10 +562,6 @@ class OCRService {
         'Evaluating company candidate: "$trimmed" | hasKeyword: $hasKeyword | isAllUppercase: $isAllUppercase | isCapitalized: $isCapitalized | isNearBottom: $isNearBottom | isFallbackWord: $isFallbackWord',
       );
 
-      // A candidate is considered a company name if:
-      // 1. It contains a strong company keyword AND is in the bottom half of the card, OR
-      // 2. It is mostly uppercase AND is in the bottom half of the card, OR
-      // 3. It is capitalized AND is in the bottom half AND matches a fallback company word.
       return (hasKeyword && isNearBottom) ||
           (isAllUppercase && isNearBottom) ||
           (isCapitalized && isNearBottom && isFallbackWord);
@@ -395,7 +584,6 @@ class OCRService {
       return null;
     }
 
-    // Prioritize longer company names as they might be more complete.
     candidates.sort((a, b) => b.length.compareTo(a.length));
 
     print('Final chosen company name: "${candidates.first}"');
