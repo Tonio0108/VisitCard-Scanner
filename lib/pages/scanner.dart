@@ -30,13 +30,9 @@ class AddContactScreen extends StatelessWidget {
             children: [
               FloatingActionButton.extended(
                 onPressed: () async {
-<<<<<<< HEAD
-                  final ocrService = OCRService();
-=======
                   final ocrService = OCRService(
                     groqApiKey: dotenv.env['GROQ_API_KEY'] ?? '',
                   );
->>>>>>> 4e930c5 (V4.0.1)
                   final result = await ocrService
                       .scanAndParseVisitCardFromCamera(context);
                   ocrService.dispose();
