@@ -8,58 +8,75 @@ class VisitCard {
   final String organisationName;
   final String email;
   final String profession;
-
-  List<Contact> contacts;
-  List<Website> websites;
-  List<SocialNetwork> socialNetworks;
   final String? imageUrl;
+  final List<Contact> contacts;
+  final List<Website> websites;
+  final List<SocialNetwork> socialNetworks;
+  final bool isSyncedToNative;
 
   VisitCard({
     this.id,
     required this.fullName,
-    required this.organisationName,
-    required this.email,
-    required this.profession,
+    this.organisationName = '',
+    this.email = '',
+    this.profession = '',
+    this.imageUrl,
     this.contacts = const [],
     this.websites = const [],
     this.socialNetworks = const [],
-    this.imageUrl = "assets/images/placeholder.webp",
+    this.isSyncedToNative = false,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'organisationName': organisationName,
-      'email': email,
-      'profession': profession,
-      'contacts': contacts.map((c) => c.toMap()).toList(),
-      'websites': websites.map((w) => w.toMap()).toList(),
-      'socialNetworks': socialNetworks.map((s) => s.toMap()).toList(),
-    };
+  VisitCard copyWith({
+    int? id,
+    String? fullName,
+    String? organisationName,
+    String? email,
+    String? profession,
+    String? imageUrl,
+    List<Contact>? contacts,
+    List<Website>? websites,
+    List<SocialNetwork>? socialNetworks,
+    bool? isSyncedToNative,
+  }) {
+    return VisitCard(
+      id: id ?? this.id,
+      fullName: fullName ?? this.fullName,
+      organisationName: organisationName ?? this.organisationName,
+      email: email ?? this.email,
+      profession: profession ?? this.profession,
+      imageUrl: imageUrl ?? this.imageUrl,
+      contacts: contacts ?? this.contacts,
+      websites: websites ?? this.websites,
+      socialNetworks: socialNetworks ?? this.socialNetworks,
+      isSyncedToNative: isSyncedToNative ?? this.isSyncedToNative,
+    );
   }
 
   factory VisitCard.fromMap(Map<String, dynamic> map) {
     return VisitCard(
-      id: map['id'],
-      fullName: map['fullName'],
-      organisationName: map['organisationName'],
-      email: map['email'],
-      profession: map['profession'],
-      contacts:
-          (map['contacts'] as List<dynamic>?)
-              ?.map((item) => Contact.fromMap(item))
-              .toList() ??
-          [],
-      websites:
-          (map['websites'] as List<dynamic>?)
-              ?.map((item) => Website.fromMap(item))
-              .toList() ??
-          [],
-      socialNetworks:
-          (map['socialNetworks'] as List<dynamic>?)
-              ?.map((item) => SocialNetwork.fromMap(item))
-              .toList() ??
-          [],
+      id: map['id'] as int?,
+      fullName: map['fullName'] as String,
+      organisationName: map['organisationName'] as String? ?? '',
+      email: map['email'] as String? ?? '',
+      profession: map['profession'] as String? ?? '',
+      imageUrl: map['imageUrl'] as String?,
+      contacts: [], // Load separately in DB service
+      websites: [],
+      socialNetworks: [],
+      isSyncedToNative: (map['isSyncedToNative'] ?? 0) == 1,
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'fullName': fullName,
+      'organisationName': organisationName,
+      'email': email,
+      'profession': profession,
+      'imageUrl': imageUrl,
+      'isSyncedToNative': isSyncedToNative ? 1 : 0,
+    };
   }
 }

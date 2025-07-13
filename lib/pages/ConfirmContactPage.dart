@@ -6,13 +6,14 @@ import 'package:visit_card_scanner/models/social_network.dart';
 import 'package:visit_card_scanner/models/visit_card.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
-import 'package:path_provider/path_provider.dart'; // Import path_provider
+import 'package:path_provider/path_provider.dart';
+import 'package:visit_card_scanner/services/contact_sync_service.dart';
 
 class ConfirmFormPage extends StatefulWidget {
   final String? name;
   final String? org;
   final String? role;
-  final String? image; // This will now be the local path or null
+  final String? image;
   final String? email;
   final List<Contact>? phones;
   final List<Website>? websites;
@@ -49,6 +50,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
   late List<Map<String, TextEditingController>> socialControllers;
 
   File? _profileImage;
+  bool _shouldSyncToNative = false;
 
   @override
   void initState() {
@@ -86,7 +88,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
             },
           ];
 
-    // Initialize _profileImage if an image path is provided
     if (widget.image != null && widget.image!.isNotEmpty) {
       _profileImage = File(widget.image!);
     }
@@ -138,6 +139,12 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                         ? (value) {
                             if (value == null || value.trim().isEmpty) {
                               return 'Ce champ est requis';
+                            }
+                            final phoneRegex = RegExp(
+                              r'^[0-9+\-\s]{6,}$',
+                            ); // basic digits/space/dash
+                            if (!phoneRegex.hasMatch(value.trim())) {
+                              return 'Numéro invalide';
                             }
                             return null;
                           }
@@ -247,7 +254,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
 
   void saveData() async {
     final isFormValid = _formKey.currentState!.validate();
-
     final phoneFilled = phoneControllers.any(
       (controller) => controller.text.trim().isNotEmpty,
     );
@@ -267,13 +273,11 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         .where((text) => text.isNotEmpty)
         .map((p) => Contact(phoneNumber: p))
         .toList();
-
     final savedWebsites = siteControllers
         .map((c) => c.text.trim())
         .where((text) => text.isNotEmpty)
         .map((link) => Website(link: link))
         .toList();
-
     final savedSocials = socialControllers
         .where(
           (c) =>
@@ -289,7 +293,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
         .toList();
 
     String? imagePathToSave = widget.image;
-
     if (_profileImage != null) {
       final directory = await getApplicationDocumentsDirectory();
       final String fileName = '${DateTime.now().millisecondsSinceEpoch}.png';
@@ -315,6 +318,27 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
       await db.updateVisitCard(visitCard);
     } else {
       await db.insertVisitCard(visitCard);
+    }
+
+    if (_shouldSyncToNative) {
+      final updatedCard = visitCard.id != null
+          ? await db.getVisitCardById(visitCard.id!)
+          : await db.getLastInsertedVisitCard();
+      if (updatedCard != null) {
+        final synced = await ContactSyncService.instance.syncContactToNative(
+          updatedCard,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              synced
+                  ? 'Synchronisé avec les contacts natifs'
+                  : 'Erreur de synchronisation',
+            ),
+          ),
+        );
+      }
     }
 
     if (!mounted) return;
@@ -357,10 +381,8 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                       backgroundColor: Colors.grey[300],
                       backgroundImage: _profileImage != null
                           ? FileImage(_profileImage!)
-                          : null, // Only use FileImage if _profileImage is set
-                      child:
-                          (_profileImage ==
-                              null) // Check if _profileImage is null
+                          : null,
+                      child: _profileImage == null
                           ? const Icon(Icons.add, color: Colors.white)
                           : null,
                     ),
@@ -370,7 +392,6 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 ),
               ),
               const SizedBox(height: 24),
-
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(labelText: 'Nom complet'),
@@ -396,17 +417,20 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
                   final trimmed = value?.trim() ?? '';
-                  if (trimmed.isEmpty) return null; // allow empty
-                  final emailRegex = RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$');
-                  if (!emailRegex.hasMatch(trimmed)) {
-                    return 'Email invalide';
+                  if (trimmed.isEmpty &&
+                      phoneControllers.every((c) => c.text.trim().isEmpty)) {
+                    return 'Veuillez fournir un email ou un téléphone';
+                  }
+                  if (trimmed.isNotEmpty) {
+                    final emailRegex = RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$');
+                    if (!emailRegex.hasMatch(trimmed)) {
+                      return 'Email invalide';
+                    }
                   }
                   return null;
                 },
               ),
-
               const SizedBox(height: 24),
-
               buildDynamicFieldList(
                 "Téléphone(s)",
                 phoneControllers,
@@ -416,9 +440,7 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
                 () => setState(
                   () => phoneControllers.add(TextEditingController()),
                 ),
-                required: false, // handled globally
               ),
-
               const SizedBox(height: 16),
               buildDynamicFieldList(
                 "Sites webs",
@@ -432,6 +454,13 @@ class _ConfirmFormPageState extends State<ConfirmFormPage> {
               ),
               const SizedBox(height: 16),
               buildSocialFields(),
+              const SizedBox(height: 24),
+              SwitchListTile(
+                title: const Text('Enregistrer dans les contacts natifs'),
+                value: _shouldSyncToNative,
+                onChanged: (value) =>
+                    setState(() => _shouldSyncToNative = value),
+              ),
               const SizedBox(height: 32),
             ],
           ),

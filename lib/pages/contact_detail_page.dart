@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:visit_card_scanner/models/contact.dart';
 import 'package:visit_card_scanner/models/social_network.dart';
+import 'package:visit_card_scanner/models/visit_card.dart';
 import 'package:visit_card_scanner/models/website.dart';
 import 'package:visit_card_scanner/services/database_service.dart';
-// Import de la page de confirmation
+import 'package:visit_card_scanner/services/contact_sync_service.dart';
 import 'ConfirmContactPage.dart';
-import 'dart:io'; // Import dart:io
-
+import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
 
 Future<void> _launchPhone(String number) async {
@@ -36,7 +36,7 @@ class ContactDetailPage extends StatefulWidget {
   final String name;
   final String org;
   final String role;
-  final String? image; // This is now the local path or null
+  final String? image;
   final String? email;
   final List<Contact> phones;
   final List<Website>? websites;
@@ -61,10 +61,74 @@ class ContactDetailPage extends StatefulWidget {
 }
 
 class _ContactDetailPageState extends State<ContactDetailPage> {
-  // Track expanded state for each list type
   bool _phonesExpanded = false;
   bool _websitesExpanded = false;
   bool _socialsExpanded = false;
+  bool _isSavedToNative = false;
+  bool _isCheckingNativeStatus = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkNativeContactStatus();
+  }
+
+  Future<void> _checkNativeContactStatus() async {
+    final visitCard = VisitCard(
+      id: widget.id,
+      fullName: widget.name,
+      organisationName: widget.org,
+      email: widget.email ?? '',
+      profession: widget.role,
+      contacts: widget.phones,
+      websites: widget.websites ?? [],
+      socialNetworks: widget.socials ?? [],
+      imageUrl: widget.image,
+    );
+    final exists = await ContactSyncService.instance.existsInNativeContacts(
+      visitCard,
+    );
+    setState(() {
+      _isSavedToNative = exists;
+      _isCheckingNativeStatus = false;
+    });
+  }
+
+  Future<void> _saveToNativeContacts() async {
+    // Create VisitCard object from widget data
+    final visitCard = VisitCard(
+      id: widget.id,
+      fullName: widget.name,
+      organisationName: widget.org,
+      email: widget.email ?? '',
+      profession: widget.role,
+      contacts: widget.phones,
+      websites: widget.websites ?? [],
+      socialNetworks: widget.socials ?? [],
+      imageUrl: widget.image,
+    );
+
+    final success = await ContactSyncService.instance.saveToNativeContacts(
+      visitCard,
+    );
+
+    if (success) {
+      setState(() => _isSavedToNative = true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Contact sauvegardé dans les contacts natifs'),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors de la sauvegarde')),
+        );
+      }
+    }
+  }
 
   Widget _buildListCard({
     required IconData icon,
@@ -135,24 +199,17 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
           ),
           TextButton(
             child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
-            onPressed: () async {
-              Navigator.of(context).pop(true);
-            },
+            onPressed: () => Navigator.of(context).pop(true),
           ),
         ],
       ),
     );
 
     if (confirm == true) {
-      // You might want to delete the local image file here as well
-      // if (widget.image != null && widget.image!.isNotEmpty) {
-      //   final file = File(widget.image!);
-      //   if (await file.exists()) {
-      //     await file.delete();
-      //   }
-      // }
       await DatabaseService.instance.deleteVisitCard(widget.id);
-      Navigator.of(context).pop(true);
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
     }
   }
 
@@ -165,6 +222,20 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
         actions: [
+          // Native contacts sync button
+          if (!_isCheckingNativeStatus)
+            IconButton(
+              icon: Icon(
+                _isSavedToNative
+                    ? Icons.contacts
+                    : Icons.contact_phone_outlined,
+                color: _isSavedToNative ? Colors.green : Colors.grey,
+              ),
+              onPressed: _isSavedToNative ? null : _saveToNativeContacts,
+              tooltip: _isSavedToNative
+                  ? 'Déjà dans les contacts'
+                  : 'Sauvegarder dans les contacts',
+            ),
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: () async {
@@ -176,7 +247,7 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                     name: widget.name,
                     org: widget.org,
                     role: widget.role,
-                    image: widget.image, // Pass the current local image path
+                    image: widget.image,
                     email: widget.email,
                     phones: widget.phones,
                     websites: widget.websites,
@@ -186,7 +257,6 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
               );
 
               if (updatedCard != null && context.mounted) {
-                // Refresh the page with the updated data
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
@@ -195,7 +265,7 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
                       name: updatedCard.fullName,
                       org: updatedCard.organisationName,
                       role: updatedCard.profession,
-                      image: updatedCard.imageUrl, // Use the updated imageUrl
+                      image: updatedCard.imageUrl,
                       email: updatedCard.email,
                       phones: updatedCard.contacts,
                       websites: updatedCard.websites,
@@ -217,9 +287,7 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
               radius: 48,
               backgroundColor: const Color.fromARGB(255, 231, 231, 231),
               backgroundImage: widget.image != null && widget.image!.isNotEmpty
-                  ? FileImage(
-                      File(widget.image!),
-                    ) // Use FileImage for local path
+                  ? FileImage(File(widget.image!))
                   : null,
               child: (widget.image == null || widget.image!.isEmpty)
                   ? const Icon(Icons.person, size: 48)
@@ -236,6 +304,35 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
               style: const TextStyle(color: Colors.grey, fontSize: 16),
               textAlign: TextAlign.center,
             ),
+
+            // Show native contact status
+            if (!_isCheckingNativeStatus)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isSavedToNative
+                          ? Icons.check_circle
+                          : Icons.info_outline,
+                      size: 16,
+                      color: _isSavedToNative ? Colors.green : Colors.orange,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _isSavedToNative
+                          ? 'Dans les contacts natifs'
+                          : 'Pas encore dans les contacts',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _isSavedToNative ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             const SizedBox(height: 24),
 
             if (widget.email != null && widget.email!.isNotEmpty)
@@ -302,7 +399,6 @@ class _ContactDetailPageState extends State<ContactDetailPage> {
           ],
         ),
       ),
-
       floatingActionButton: FloatingActionButton(
         onPressed: _confirmDelete,
         backgroundColor: Colors.redAccent,
