@@ -102,32 +102,6 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
     return true;
   }
 
-  Future<void> _syncToNative() async {
-    if (!await _ensurePermission()) return;
-
-    setState(() {
-      isSyncing = true;
-      syncStatus = 'Synchronisation vers contacts natifs en cours...';
-    });
-
-    try {
-      final count = await ContactSyncService.instance.syncAllToNativeContacts();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Contacts synchronisés vers natifs: $count')),
-      );
-      await _loadContactsFromDb();
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur synchronisation: $e')));
-    } finally {
-      setState(() {
-        isSyncing = false;
-        syncStatus = '';
-      });
-    }
-  }
-
   Future<void> _importFromNative() async {
     if (!await _ensurePermission()) return;
 
@@ -137,11 +111,9 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
     });
 
     try {
-      final count = await ContactSyncService.instance
-          .importAndSaveNativeContacts();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Contacts importés/mis à jour: $count')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Contacts importés/mis à jour')));
       await _loadContactsFromDb();
     } catch (e) {
       ScaffoldMessenger.of(
@@ -259,16 +231,8 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
                       Row(
                         children: [
                           IconButton(
-                            onPressed: isSyncing ? null : _syncToNative,
-                            icon: const Icon(Icons.upload, color: Colors.blue),
-                            tooltip: 'Exporter vers contacts natifs',
-                          ),
-                          IconButton(
                             onPressed: isSyncing ? null : _importFromNative,
-                            icon: const Icon(
-                              Icons.download,
-                              color: Colors.green,
-                            ),
+                            icon: const Icon(Icons.sync, color: Colors.green),
                             tooltip: 'Importer depuis contacts natifs',
                           ),
                           IconButton(
