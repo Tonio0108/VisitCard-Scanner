@@ -134,6 +134,14 @@ class OCRService {
     final pickedFile = await picker.pickImage(source: ImageSource.camera);
     if (pickedFile == null) return null;
 
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Traitement en cours ..."),
+        backgroundColor: Colors.orange,
+        duration: Duration(days: 1),
+      ),
+    );
+
     final imageFile = File(pickedFile.path);
     final inputImage = InputImage.fromFile(imageFile);
 
@@ -185,6 +193,8 @@ class OCRService {
     if (result == null) {
       result = await _heuristicExtraction(text, recognizedText, context);
     }
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     return result;
   }
