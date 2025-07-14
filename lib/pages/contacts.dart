@@ -112,6 +112,7 @@ class _ContactPageState extends State<ContactPage> with RouteAware {
     });
 
     try {
+      await ContactSyncService.instance.importAndSaveNativeContacts();
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Contacts importés/mis à jour')));
